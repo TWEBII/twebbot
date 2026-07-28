@@ -42,7 +42,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
     <h2>TWEB Cloud Stream</h2>
     <div class="video-container">
-        <video controls playsinline>
+        <video controls autoplay playsinline preload="auto">
             <source src="{stream_url}" type="video/mp4">
             متصفحك لا يدعم تشغيل الفيديو.
         </video>
@@ -95,12 +95,14 @@ async def stream(request):
         'Accept-Ranges': 'bytes',
         'Content-Range': f'bytes {offset}-{offset + limit - 1}/{file_size}',
         'Content-Length': str(limit),
+        'Connection': 'keep-alive',
     }
 
     response = web.StreamResponse(status=206 if range_header else 200, headers=headers)
     await response.prepare(request)
 
     try:
+        # تدفق البيانات بسرعة عالية للمتصفح دون تأخير
         async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
             await response.write(chunk)
     except asyncio.CancelledError:
@@ -112,7 +114,7 @@ async def stream(request):
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
-    msg = await message.reply_text("⏳ جاري توليد رابط البث المباشر للمحاضرة...")
+    msg = await message.reply_text("⏳ جاري توليد رابط البث السحابي السريع للمحاضرة...")
     try:
         media = message.video or message.document
         file_id = media.file_unique_id
@@ -125,7 +127,7 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة والتحميل بدون أي تقطيع:", reply_markup=markup)
+        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة والتحميل بدون أي توقف:", reply_markup=markup)
     except Exception as e:
         await msg.edit_text(f"⚠️ حدث خطأ: {e}")
 
@@ -144,7 +146,6 @@ async def web_server():
     print(f"Web server started on port {port}")
 
 async def main():
-    # تشغيل سيرفر الويب والبوت معاً بتوازن تامة بدون تجميد
     await app_bot.start()
     print("Telegram Bot started successfully!")
     await web_server()
