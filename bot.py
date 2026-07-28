@@ -52,7 +52,7 @@ def load_sticker_packs():
             print(f"فشل تحميل الحزمة {pack_name}: {e}")
     cached_stickers = all_stickers
 
-# أمر البدء وترحيب المستخدمين (يعمل بالخاص فقط أو بالمجموعات إذا انطلب)
+# أمر البدء وترحيب المستخدمين
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     user = message.from_user
@@ -194,7 +194,7 @@ def handle_stickers(message):
         if cached_stickers and random.random() < 0.5:
             bot.send_sticker(message.chat.id, random.choice(cached_stickers))
 
-# معالجة النصوص والذكاء الاصطناعي (للخاص وللمجموعات بالشروط المطلوبة)
+# معالجة النصوص والذكاء الاصطناعي
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global message_counter, total_messages_sent
@@ -204,16 +204,14 @@ def chat_with_ai(message):
     user_message = message.text
     chat_type = message.chat.type
 
-    # التحقق من شروط المجموعات (إذا كانت المذكرة مجموعة أو سوبر گروه)
+    # التحقق من شروط المجموعات
     if chat_type in ["group", "supergroup"]:
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         text_lower = user_message.lower()
         
-        # الكلمات المفتاحية المطلوبة
         mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
         mentioned_dev = "احمد" in text_lower
 
-        # إذا لم يتم الرد على البوت، ولم يذكر اسمه، ولم يذكر اسم أحمد -> تجاهل الرسالة تماماً بالمجموعة
         if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
             return
 
@@ -224,12 +222,17 @@ def chat_with_ai(message):
         total_messages_sent += 1
         should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
         
+        # جلب الوقت والتاريخ والسنة الحالية وإرسالها داخل نظام التوجيه للذكاء الاصطناعي
+        now = datetime.now()
+        current_time_str = now.strftime("%Y-%m-%d %I:%M:%S %p")
+        
         system_content = (
-            "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
-            "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو المبدع أحمد. "
-            "إذا تم ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه بطريقة حلوة وعفوية. "
-            "لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
-            "أجب باختصار وذكاء ودون تكلف."
+            f"أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
+            f"ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو المبدع أحمد. "
+            f"الوقت والتاريخ الحاليان هما: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب بدقة بناءً على هذا الوقت تماماً. "
+            f"إذا تم ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه بطريقة حلوة وعفوية. "
+            f"لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
+            f"أجب باختصار وذكاء ودون تكلف."
         )
 
         if should_send_sticker:
