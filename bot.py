@@ -58,29 +58,26 @@ async def index(request):
 @routes.get('/watch/{file_id}')
 async def watch(request):
     file_id = request.match_info['file_id']
-    file_info = FILE_CACHE.get(file_id)
+    message = FILE_CACHE.get(file_id)
     
-    if not file_info:
-        return web.Response(status=404, text="عذراً، الملف غير موجود. أرسل الفيديو للبوت مجدداً.")
+    if not message:
+        return web.Response(status=404, text="عذراً، انتهت صلاحية الجلسة أو الملف غير موجود. أرسل الفيديو للبوت مجدداً.")
 
-    # الحصول على رابط التيليجرام المباشر الحقيقي للملف
-    message = file_info['message']
-    media = message.video or message.document
-    file_path = await app_bot.download_media(media, in_memory=True)
-    
-    # استخراج رابط التحميل المباشر من تيليجرام
-    direct_url = await app_bot.get_file_link(message)
-
-    return web.Response(text=HTML_PAGE.replace("{direct_url}", direct_url), content_type='text/html')
+    try:
+        # جلب الرابط المباشر من سيرفرات تيليجرام فوراً وبدون استهلاك للذاكرة
+        direct_url = await app_bot.get_file_link(message)
+        return web.Response(text=HTML_PAGE.replace("{direct_url}", direct_url), content_type='text/html')
+    except Exception as e:
+        return web.Response(status=500, text=f"خطأ في جلب الرابط: {e}")
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
-    msg = await message.reply_text("⏳ جاري توليد الرابط المباشر السريع للمحاضرة...")
+    msg = await message.reply_text("⏳ جاري توليد الرابط المباشر...")
     try:
-        media = message.video or message.document
-        file_id = media.file_unique_id
+        file_id = message.video.file_unique_id if message.video else message.document.file_unique_id
         
-        FILE_CACHE[file_id] = {'message': message}
+        # تخزين كائن الرسالة مباشرة في الذاكرة المؤقتة السريعة
+        FILE_CACHE[file_id] = message
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
@@ -88,7 +85,7 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await msg.edit_text("✅ تم تجهيز رابط البث المباشر بنجاح!\n\nاضغط للمشاهدة فوراً بدون تقطيع:", reply_markup=markup)
+        await msg.edit_text("✅ تم تجهيز الرابط بنجاح!\n\nاضغط للمشاهدة فوراً:", reply_markup=markup)
     except Exception as e:
         await msg.edit_text(f"⚠️ حدث خطأ: {e}")
 
@@ -110,7 +107,6 @@ async def main():
     await app_bot.start()
     print("Telegram Bot started successfully!")
     await web_server()
-    asyncio.get_event_loop()
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
