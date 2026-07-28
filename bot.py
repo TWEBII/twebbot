@@ -1,31 +1,99 @@
 import os
+import threading
 import telebot
-from google import genai
+from flask import Flask, render_template_string, send_from_directory
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-client = genai.Client(api_key=GEMINI_API_KEY)
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
+app = Flask(__name__)
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "مرحباً بك! أنا بوت ذكاء اصطناعي مدعوم من Gemini. أرسل لي أي سؤال وسأجيبك.")
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
+# قالب صفحة المشاهدة بتصميم أنيق ومتجاوب
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مشاهدة الفيديو</title>
+    <style>
+        body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 30px; margin: 0; }
+        h2 { color: #38bdf8; margin-bottom: 20px; }
+        .video-container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        video { width: 100%; border-radius: 8px; outline: none; }
+        .btn { display: inline-block; margin-top: 25px; padding: 12px 25px; background: #38bdf8; color: #0f172a; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.3s; }
+        .btn:hover { background: #0ea5e9; }
+    </style>
+</head>
+<body>
+    <h2>مشغيل الفيديو السحابي</h2>
+    <div class="video-container">
+        <video controls autoplay>
+            <source src="{{ url_for('stream_video', filename=filename) }}" type="video/mp4">
+            متصفحك لا يدعم عرض الفيديو.
+        </video>
+    </div>
+    <div>
+        <a class="btn" href="{{ url_for('download_video', filename=filename) }}">تحميل الفيديو مباشر 📥</a>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/watch/<filename>')
+def watch_video(filename):
+    return render_template_string(HTML_TEMPLATE, filename=filename)
+
+@app.route('/stream/<filename>')
+def stream_video(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route('/download/<filename>')
+def download_video(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
     try:
-        bot.send_chat_action(message.chat.id, 'typing')
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=message.text
-        )
-        bot.reply_to(message, response.text)
+        sent_msg = bot.reply_to(message, "جاري معالجة الفيديو ورفع روابطه... ⏳")
+        file_info = bot.get_file(message.video.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        filename = f"{message.video.file_id}.mp4"
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        with open(file_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+        
+        # جلب الدومين الأساسي للموقع من متغيرات البيئة أو استبداله برابط مشروعك على Railway
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
+        base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
+        
+        watch_link = f"{base_url}/watch/{filename}"
+        download_link = f"{base_url}/download/{filename}"
+        
+        response_text = f"✅ **تم رفع الفيديو وتوليد الروابط بنجاح!**\n\n📺 [اضغط هنا للمشاهدة داخل الموقع]({watch_link})\n📥 [اضغط هنا للتحميل المباشر]({download_link})"
+        
+        bot.edit_message_text(response_text, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
     except Exception as e:
         print(f"Error: {e}")
-        bot.reply_to(message, "عذراً، واجهت مشكلة في معالجة طلبك حالياً.")
+        bot.reply_to(message, "عذراً، حدث خطأ أثناء معالجة الفيديو.")
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "أهلاً بك! أرسل لي أي فيديو وسأقوم بتحويله فوراً إلى رابط مشاهدة داخل الموقع ورابط تحميل مباشر.")
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    print("البوت يعمل...")
+    # تشغيل سيرفر الويب في خلفية النظام
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    print("البوت وسيرفر الويب يعملان بكفاءة...")
     bot.infinity_polling(skip_pending=True)
