@@ -52,7 +52,7 @@ def load_sticker_packs():
             print(f"فشل تحميل الحزمة {pack_name}: {e}")
     cached_stickers = all_stickers
 
-# أمر البدء وترحيب المستخدمين
+# أمر البدء وترحيب المستخدمين (يعمل بالخاص فقط أو بالمجموعات إذا انطلب)
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     user = message.from_user
@@ -69,7 +69,7 @@ def send_welcome(message):
 
     bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
-    if user_id != ADMIN_CHAT_ID:
+    if user_id != ADMIN_CHAT_ID and message.chat.type == "private":
         try:
             notification = (
                 f"🚨 **تنبيه دخول شخص جديد للبوت!**\n\n"
@@ -178,21 +178,23 @@ def execute_broadcast(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
-    bot.reply_to(message, "وصلتني الصورة يا غالي! عيوني مشغولة بالكتابة والردود، سولف وياي بالكتابة أو دزلي ملصق أحسن! 😄📸")
+    if message.chat.type == "private":
+        bot.reply_to(message, "وصلتني الصورة يا غالي! عيوني مشغولة بالكتابة والردود، سولف وياي بالكتابة أو دزلي ملصق أحسن! 😄📸")
 
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
-    responses = [
-        "الله، خوش ملصق هذا! هههههه 🤭",
-        "ملصق حلو، عاشت ايدك عليه! 👀",
-        "حلوة هاي الحركة ✨",
-        "ههههه عجبني هذا الملصق 😂"
-    ]
-    bot.reply_to(message, random.choice(responses))
-    if cached_stickers and random.random() < 0.5:
-        bot.send_sticker(message.chat.id, random.choice(cached_stickers))
+    if message.chat.type == "private":
+        responses = [
+            "الله، خوش ملصق هذا! هههههه 🤭",
+            "ملصق حلو، عاشت ايدك عليه! 👀",
+            "حلوة هاي الحركة ✨",
+            "ههههه عجبني هذا الملصق 😂"
+        ]
+        bot.reply_to(message, random.choice(responses))
+        if cached_stickers and random.random() < 0.5:
+            bot.send_sticker(message.chat.id, random.choice(cached_stickers))
 
-# معالجة النصوص والذكاء الاصطناعي
+# معالجة النصوص والذكاء الاصطناعي (للخاص وللمجموعات بالشروط المطلوبة)
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global message_counter, total_messages_sent
@@ -200,16 +202,32 @@ def chat_with_ai(message):
     users_db.add(user_id)
 
     user_message = message.text
+    chat_type = message.chat.type
+
+    # التحقق من شروط المجموعات (إذا كانت المذكرة مجموعة أو سوبر گروه)
+    if chat_type in ["group", "supergroup"]:
+        is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
+        text_lower = user_message.lower()
+        
+        # الكلمات المفتاحية المطلوبة
+        mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
+        mentioned_dev = "احمد" in text_lower
+
+        # إذا لم يتم الرد على البوت، ولم يذكر اسمه، ولم يذكر اسم أحمد -> تجاهل الرسالة تماماً بالمجموعة
+        if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
+            return
+
     try:
         sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
         
         message_counter += 1
         total_messages_sent += 1
-        should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0)
+        should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
         
         system_content = (
             "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
-            "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو أحمد. "
+            "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو المبدع أحمد. "
+            "إذا تم ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه بطريقة حلوة وعفوية. "
             "لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
             "أجب باختصار وذكاء ودون تكلف."
         )
@@ -249,7 +267,7 @@ def chat_with_ai(message):
 
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
         
-        if sticker_to_send:
+        if sticker_to_send and chat_type == "private":
             bot.send_sticker(message.chat.id, sticker_to_send)
 
     except Exception as e:
