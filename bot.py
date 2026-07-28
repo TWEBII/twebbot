@@ -1,6 +1,6 @@
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from groq import Groq
 import telebot
 from telebot import types
@@ -91,7 +91,9 @@ def admin_command(message):
 
 def show_admin_panel(chat_id, msg_id=None, is_new=True):
     global total_messages_sent
-    today_date = datetime.now().strftime("%Y-%m-%d")
+    # ضبط تاريخ لوحة التحكم بتوقيت العراق (+3)
+    iraq_time = datetime.utcnow() + timedelta(hours=3)
+    today_date = iraq_time.strftime("%Y-%m-%d")
     
     panel_text = (
         f"🤖 **لوحة التحكم الإدارية للبوت**\n"
@@ -222,14 +224,14 @@ def chat_with_ai(message):
         total_messages_sent += 1
         should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
         
-        # جلب الوقت والتاريخ والسنة الحالية وإرسالها داخل نظام التوجيه للذكاء الاصطناعي
-        now = datetime.now()
-        current_time_str = now.strftime("%Y-%m-%d %I:%M:%S %p")
+        # ضبط الوقت والتاريخ والسنة بدقة حسب توقيت العراق (UTC+3)
+        iraq_now = datetime.utcnow() + timedelta(hours=3)
+        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
             f"أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
             f"ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو المبدع أحمد. "
-            f"الوقت والتاريخ الحاليان هما: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب بدقة بناءً على هذا الوقت تماماً. "
+            f"الوقت والتاريخ الحاليان في العراق هما بالتحديد: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب فوراً وبدقة تامة بناءً على هذا الوقت. "
             f"إذا تم ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه بطريقة حلوة وعفوية. "
             f"لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
             f"أجب باختصار وذكاء ودون تكلف."
