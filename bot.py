@@ -1,18 +1,15 @@
 import os
-import re
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 
-# بيانات تطبيق تيليجرام الخاص بك
 API_ID = 20503432
 API_HASH = "26227bf46cdb65744fb4c6572b82bc01"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 FILE_CACHE = {}
 
-# إعداد عميل بايروجرام
 app_bot = Client(
     "tweb_stream_bot", 
     api_id=API_ID, 
@@ -42,13 +39,13 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
     <h2>TWEB Cloud Stream</h2>
     <div class="video-container">
-        <video controls autoplay playsinline preload="auto">
-            <source src="{stream_url}" type="video/mp4">
+        <video controls autoplay playsinline>
+            <source src="{direct_url}" type="video/mp4">
             متصفحك لا يدعم تشغيل الفيديو.
         </video>
     </div>
     <div>
-        <a class="btn" href="{stream_url}" download>تحميل المحاضرة برابط مباشر 📥</a>
+        <a class="btn" href="{direct_url}" download>تحميل المحاضرة برابط مباشر 📥</a>
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
@@ -61,65 +58,29 @@ async def index(request):
 @routes.get('/watch/{file_id}')
 async def watch(request):
     file_id = request.match_info['file_id']
-    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", request.host)
-    base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
-    stream_url = f"{base_url}/stream/{file_id}"
-    return web.Response(text=HTML_PAGE.replace("{stream_url}", stream_url), content_type='text/html')
-
-@routes.get('/stream/{file_id}')
-async def stream(request):
-    file_id = request.match_info['file_id']
-    message = FILE_CACHE.get(file_id)
+    file_info = FILE_CACHE.get(file_id)
     
-    if not message:
+    if not file_info:
         return web.Response(status=404, text="عذراً، الملف غير موجود. أرسل الفيديو للبوت مجدداً.")
 
+    # الحصول على رابط التيليجرام المباشر الحقيقي للملف
+    message = file_info['message']
     media = message.video or message.document
-    file_size = media.file_size
+    file_path = await app_bot.download_media(media, in_memory=True)
+    
+    # استخراج رابط التحميل المباشر من تيليجرام
+    direct_url = await app_bot.get_file_link(message)
 
-    offset = 0
-    limit = file_size
-    range_header = request.headers.get('Range', '')
-
-    if range_header:
-        match = re.search(r'bytes=(\d+)-(\d*)', range_header)
-        if match:
-            offset = int(match.group(1))
-            if match.group(2):
-                limit = int(match.group(2)) + 1 - offset
-            else:
-                limit = file_size - offset
-
-    headers = {
-        'Content-Type': 'video/mp4',
-        'Accept-Ranges': 'bytes',
-        'Content-Range': f'bytes {offset}-{offset + limit - 1}/{file_size}',
-        'Content-Length': str(limit),
-        'Connection': 'keep-alive',
-    }
-
-    response = web.StreamResponse(status=206 if range_header else 200, headers=headers)
-    await response.prepare(request)
-
-    try:
-        # تدفق البيانات بسرعة عالية للمتصفح دون تأخير
-        async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
-            await response.write(chunk)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        print(f"Stream Error: {e}")
-
-    return response
+    return web.Response(text=HTML_PAGE.replace("{direct_url}", direct_url), content_type='text/html')
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
-    msg = await message.reply_text("⏳ جاري توليد رابط البث السحابي السريع للمحاضرة...")
+    msg = await message.reply_text("⏳ جاري توليد الرابط المباشر السريع للمحاضرة...")
     try:
         media = message.video or message.document
         file_id = media.file_unique_id
         
-        FILE_CACHE[file_id] = message
+        FILE_CACHE[file_id] = {'message': message}
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
@@ -127,13 +88,13 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة والتحميل بدون أي توقف:", reply_markup=markup)
+        await msg.edit_text("✅ تم تجهيز رابط البث المباشر بنجاح!\n\nاضغط للمشاهدة فوراً بدون تقطيع:", reply_markup=markup)
     except Exception as e:
         await msg.edit_text(f"⚠️ حدث خطأ: {e}")
 
 @app_bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم ببثها فوراً وبدون أي أخطاء.")
+    await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم بتجهيز رابط مباشر لها.")
 
 async def web_server():
     app = web.Application()
@@ -149,9 +110,9 @@ async def main():
     await app_bot.start()
     print("Telegram Bot started successfully!")
     await web_server()
+    asyncio.get_event_loop()
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
- 
