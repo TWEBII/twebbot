@@ -5,7 +5,6 @@ from google import genai
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# التهيئة بالطريقة الحديثة
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -19,7 +18,7 @@ def handle_message(message):
     try:
         bot.send_chat_action(message.chat.id, 'typing')
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.0-flash',
             contents=message.text
         )
         bot.reply_to(message, response.text)
