@@ -18,7 +18,7 @@ def handle_message(message):
     try:
         bot.send_chat_action(message.chat.id, 'typing')
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-2.5-flash',
             contents=message.text
         )
         bot.reply_to(message, response.text)
