@@ -10,7 +10,6 @@ API_ID = 20503432
 API_HASH = "26227bf46cdb65744fb4c6572b82bc01"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# ذاكرة مؤقتة لحفظ مسارات الملفات
 FILE_CACHE = {}
 
 # إعداد عميل بايروجرام
@@ -24,7 +23,6 @@ app_bot = Client(
 
 routes = web.RouteTableDef()
 
-# واجهة المستخدم (HTML)
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -56,6 +54,10 @@ HTML_PAGE = """<!DOCTYPE html>
 </body>
 </html>"""
 
+@routes.get('/')
+async def index(request):
+    return web.Response(text="TWEB Cloud Stream Bot is Running Successfully!", content_type='text/plain')
+
 @routes.get('/watch/{file_id}')
 async def watch(request):
     file_id = request.match_info['file_id']
@@ -70,7 +72,7 @@ async def stream(request):
     message = FILE_CACHE.get(file_id)
     
     if not message:
-        return web.Response(status=404, text="عذراً، الملف غير موجود أو انتهت الجلسة. يرجى إرسال الفيديو للبوت مجدداً.")
+        return web.Response(status=404, text="عذراً، الملف غير موجود. أرسل الفيديو للبوت مجدداً.")
 
     media = message.video or message.document
     file_size = media.file_size
@@ -79,7 +81,6 @@ async def stream(request):
     limit = file_size
     range_header = request.headers.get('Range', '')
 
-    # خوارزمية حساب أجزاء الفيديو بدقة لتشغيله في المتصفح بدون تقطيع
     if range_header:
         match = re.search(r'bytes=(\d+)-(\d*)', range_header)
         if match:
@@ -100,11 +101,10 @@ async def stream(request):
     await response.prepare(request)
 
     try:
-        # استخراج الفيديو كأجزاء من سيرفر تيليجرام مباشرة
         async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
             await response.write(chunk)
     except asyncio.CancelledError:
-        pass # المستخدم أغلق الفيديو
+        pass
     except Exception as e:
         print(f"Stream Error: {e}")
 
@@ -112,12 +112,11 @@ async def stream(request):
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
-    msg = await message.reply_text("⏳ جاري إنشاء خادم البث المباشر للمحاضرة...")
+    msg = await message.reply_text("⏳ جاري توليد رابط البث المباشر للمحاضرة...")
     try:
         media = message.video or message.document
         file_id = media.file_unique_id
         
-        # حفظ كائن الرسالة لاستخدامه في البث
         FILE_CACHE[file_id] = message
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
@@ -126,34 +125,29 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة بدون تقطيع:", reply_markup=markup)
+        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة والتحميل بدون أي تقطيع:", reply_markup=markup)
     except Exception as e:
         await msg.edit_text(f"⚠️ حدث خطأ: {e}")
 
 @app_bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    await message.reply_text("أهلاً بك في بوت TWEB السحابي المطور! 👋\n\nأرسل أي فيديو أو محاضرة وسأقوم ببثها مباشرة.")
+    await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم ببثها فوراً وبدون أي أخطاء.")
 
 async def main():
-    # تشغيل بوت تيليجرام
     await app_bot.start()
     print("Bot is running...")
     
-    # تشغيل سيرفر الويب غير المتزامن
     app = web.Application()
     app.add_routes(routes)
     
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # تحديد المنفذ الخاص بـ Railway
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     
     print(f"Web server is running on port {port}...")
-    
-    # إبقاء السيرفر قيد التشغيل
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
