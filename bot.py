@@ -14,7 +14,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TWEB - مشاهدة الفيديو</title>
+    <title>TWEB - مشاهدة المحاضرة</title>
     <style>
         body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 30px; margin: 0; }
         h2 { color: #38bdf8; margin-bottom: 20px; font-size: 28px; font-weight: bold; }
@@ -26,25 +26,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h2>TWEB</h2>
+    <h2>TWEB Cloud Stream</h2>
     <div class="video-container">
         <video controls autoplay>
-            <source src="https://t.me/iv/..." type="video/mp4">
-            متصفحك لا يدعم عرض الفيديو مباشرة، استخدم زر التحميل أدناه.
+            <source src="{{ direct_url }}" type="video/mp4">
+            متصفحك لا يدعم تشغيل الفيديو مباشرة.
         </video>
     </div>
     <div>
-        <a class="btn" href="https://t.me/c/{{ file_id }}" target="_blank">تحميل وتشغيل الفيديو 📥</a>
+        <a class="btn" href="{{ direct_url }}" target="_blank">تحميل المحاضرة برابط مباشر 📥</a>
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
 </html>"""
 
-@app.route('/watch/<file_id>')
-def watch_video(file_id):
-    # استخدام Telegram Web App / Stream URL مباشر للملفات الكبيرة
-    telegram_stream_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/documents" # مسار بديل
-    return render_template_string(HTML_TEMPLATE, file_id=file_id)
+@app.route('/watch')
+def watch_video():
+    # استدعاء الرابط المباشر المرسل في الاستعلام
+    direct_url = request.args.get('url', '')
+    return render_template_string(HTML_TEMPLATE, direct_url=direct_url)
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
@@ -59,36 +59,40 @@ def webhook():
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     try:
+        sent_msg = bot.reply_to(message, "⏳ جاري استخراج رابط البث للمحاضرة...")
+        
         file_id = message.video.file_id
+        
+        # جلب مسار الملف من تيليجرام باستخدام الـ API المباشر
+        file_info = bot.get_file(file_id)
+        file_path = file_info.file_path
+        
+        # بناء رابط تليجرام المباشر السحابي للملف
+        telegram_direct_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
         
-        watch_link = f"https://t.me/{bot.get_me().username}?start=v_{file_id}"
-        
-        # رابط تليجرام الرسمي المباشر للملفات الضخمة بدون قيود الـ API
-        direct_file_link = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}"
+        # توجيه الرابط إلى صفحة الموقع المشفرة
+        web_watch_link = f"{base_url}/watch?url={telegram_direct_url}"
         
         response_text = (
-            "✅ تمت معالجة المحاضرة بنجاح!\n\n"
-            "• تم تخطي قيود الحجم بنجاح ✓\n\n"
-            "📺 اضغط الزر أدناه للمشاهدة والتحميل المباشر:"
+            "✅ تم تجهيز المحاضرة بنجاح وبدون حدود!\n\n"
+            "📺 يمكنك الآن مشاهدتها عبر الموقع أو تحميلها مباشرة:"
         )
         
         markup = InlineKeyboardMarkup()
-        # استخدام رابط مباشر يعتمد على معرف الملف في تيليجرام
-        watch_btn = InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", callback_data="watch")
+        markup.add(InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=web_watch_link))
         
-        # طريقة بديلة ومضمونة 100% لتوليد زر ينقل للمشاهدة الفورية عبر بوت الويب
-        web_app_btn = InlineKeyboardButton("🌐 فتح ومشاهدة المحاضرة", url=f"https://t.me/share/url?url=تم_تجهيز_المحاضرة")
-        
-        # سنبسطها برابط تليجرام الداخلي المباشر للتعامل مع الفيديوهات الثقيلة:
-        markup.add(InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة (بدون حدود)", url=f"https://t.me/iv/?url=https://t.me&rhash={file_id[:10]}"))
-        
-        bot.reply_to(message, response_text, reply_markup=markup)
+        bot.edit_message_text(
+            response_text, 
+            chat_id=message.chat.id, 
+            message_id=sent_msg.message_id, 
+            reply_markup=markup
+        )
     except Exception as e:
         print(f"Error: {e}")
-        bot.reply_to(message, "✅ تم استلام الفيديو، يرجى فتحه من سجل الملفات.")
+        bot.reply_to(message, "⚠️ عذراً، الملف كبير جداً لدرجة أن تليجرام يفرض قيوداً على استخراجه التلقائي. جرب توجيه فيديو حجمه أقل قليلاً.")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -99,7 +103,7 @@ def send_welcome(message):
     except:
         pass
 
-    bot.reply_to(message, " أهلاً بك! أرسل أي محاضرة ضخمة وسأقوم بتجهيزها فوراً.\n\n👨‍💻 @TWEBII")
+    bot.reply_to(message, " أهلاً بك! أرسل أي محاضرة وسأقوم بتجهيز رابط المشاهدة السحابي فوراً.\n\n👨‍💻 @TWEBII")
 
 if __name__ == "__main__":
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
