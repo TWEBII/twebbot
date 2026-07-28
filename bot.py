@@ -56,7 +56,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
 @routes.get('/')
 async def index(request):
-    return web.Response(text="TWEB Cloud Stream Bot is Running Successfully!", content_type='text/plain')
+    return web.Response(text="TWEB Cloud Stream Bot is Active!", content_type='text/plain')
 
 @routes.get('/watch/{file_id}')
 async def watch(request):
@@ -133,22 +133,24 @@ async def handle_media(client, message):
 async def start_cmd(client, message):
     await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم ببثها فوراً وبدون أي أخطاء.")
 
-async def main():
-    await app_bot.start()
-    print("Bot is running...")
-    
+async def web_server():
     app = web.Application()
     app.add_routes(routes)
-    
     runner = web.AppRunner(app)
     await runner.setup()
-    
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    
-    print(f"Web server is running on port {port}...")
+    print(f"Web server started on port {port}")
+
+async def main():
+    # تشغيل سيرفر الويب والبوت معاً بتوازن تامة بدون تجميد
+    await app_bot.start()
+    print("Telegram Bot started successfully!")
+    await web_server()
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+ 
