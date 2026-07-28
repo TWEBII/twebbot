@@ -9,7 +9,7 @@ from telebot import types
 GROQ_API_KEY = "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"
 # توكن بوت التليجرام الخاص بك
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-# آيدي حسابك (المطور) للوصول للوحة التحكم واستلام الإشعارات
+# آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
 
 # أسماء حزم الملصقات
@@ -20,10 +20,20 @@ STICKER_PACK_NAMES = [
 cached_stickers = []
 message_counter = 0
 
-# قواعد بيانات بسيطة لتخزين المستخدمين والرسائل اليومية
 users_db = set()
-daily_limits = {}  # لتتبع عدد رسائل المستخدمين اليومية
 total_messages_sent = 0
+
+# رسالة البدء الافتراضية (قابلة للتعديل من لوحة التحكم)
+custom_start_message = (
+    "هلا بيكم يا غالي! 🙋‍♂️❤️\n"
+    "أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
+    "🛠 **معلومات المطور والقنوات:**\n"
+    "• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
+    "• القنوات الرسمية:\n"
+    "  - @lTelegramWeb 🚀\n"
+    "  - @TWEBiii 💡\n\n"
+    "اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
+)
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -52,27 +62,13 @@ def send_welcome(message):
     user_name = user.first_name if user.first_name else "مستخدم"
     user_username = f"@{user.username}" if user.username else "بدون معرف"
 
-    welcome_text = (
-        f"هلا بيكم يا غالي! 🙋‍♂️❤️\n"
-        f"أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
-        f"🛠 **معلومات المطور والقنوات:**\n"
-        f"• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
-        f"• القنوات الرسمية:\n"
-        f"  - @lTelegramWeb 🚀\n"
-        f"  - @TWEBiii 💡\n\n"
-        f"ملاحظة: لديك 10 محاولات/رسائل مجانية يومياً مع الذكاء الاصطناعي! 🔄\n"
-        f"اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
-    )
-    
-    # إذا كان المستخدم هو المطور، نظهر له زر لوحة التحكم السريعة
     markup = None
     if user_id == ADMIN_CHAT_ID:
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⚙️ لوحة التحكم الإدارية", callback_data="admin_panel"))
 
-    bot.reply_to(message, welcome_text, parse_mode="Markdown", reply_markup=markup)
+    bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
-    # إرسال إشعار للمطور بدخول شخص جديد (إذا لم يكن المطور هو نفسه)
     if user_id != ADMIN_CHAT_ID:
         try:
             notification = (
@@ -110,6 +106,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("📢 إرسال إذاعة", callback_data="broadcast_start"),
+        types.InlineKeyboardButton("✏️ تعديل رسالة البدء", callback_data="edit_start_msg"),
         types.InlineKeyboardButton("🔄 تحديث الإحصائيات", callback_data="refresh_panel"),
         types.InlineKeyboardButton("❌ إغلاق القائمة", callback_data="close_panel")
     )
@@ -122,7 +119,6 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
         except:
             bot.send_message(chat_id, panel_text, parse_mode="Markdown", reply_markup=markup)
 
-# التعامل مع أزرار لوحة التحكم
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     global users_db
@@ -144,14 +140,24 @@ def callback_handler(call):
         msg = bot.send_message(call.message.chat.id, "📢 ارسل الآن رسالة الإذاعة (نص، صورة، أو ملصق) ليتم إرسالها لجميع المستخدمين:")
         bot.register_next_step_handler(msg, execute_broadcast)
 
-# تنفيذ الإذاعة لجميع المستخدمين
+    elif call.data == "edit_start_msg":
+        msg = bot.send_message(call.message.chat.id, "✏️ ارسل النص الجديد لرسالة البدء (`/start`) الآن:")
+        bot.register_next_step_handler(msg, save_new_start_message)
+
+def save_new_start_message(message):
+    global custom_start_message
+    if message.from_user.id != ADMIN_CHAT_ID:
+        return
+    
+    custom_start_message = message.text
+    bot.reply_to(message, "✅ **تم تحديث رسالة البدء بنجاح!**\n\nالرسالة الجديدة ستظهر لأي شخص يرسل `/start` ابتداءً من الآن.", parse_mode="Markdown")
+
 def execute_broadcast(message):
     if message.from_user.id != ADMIN_CHAT_ID:
         return
     
     sent_count = 0
     fail_count = 0
-    
     status_msg = bot.reply_to(message, "⏳ جاري إرسال الإذاعة لجميع المستخدمين...")
     
     for uid in users_db:
@@ -159,7 +165,6 @@ def execute_broadcast(message):
             bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
             sent_count += 1
         except Exception:
-            fail_count.append(uid) if isinstance(fail_count, list) else None
             fail_count += 1
 
     bot.edit_message_text(
@@ -171,12 +176,10 @@ def execute_broadcast(message):
         parse_mode="Markdown"
     )
 
-# معالجة الصور
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
     bot.reply_to(message, "وصلتني الصورة يا غالي! عيوني مشغولة بالكتابة والردود، سولف وياي بالكتابة أو دزلي ملصق أحسن! 😄📸")
 
-# معالجة الملصقات
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
     responses = [
@@ -189,31 +192,12 @@ def handle_stickers(message):
     if cached_stickers and random.random() < 0.5:
         bot.send_sticker(message.chat.id, random.choice(cached_stickers))
 
-# معالجة النصوص والذكاء الاصطناعي مع تقييد عدد المحاولات اليومية
+# معالجة النصوص والذكاء الاصطناعي
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global message_counter, total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-
-    # التحقق من عدد المحاولات اليومية للمستخدمين العاديين (المطور استثناء غير محدود)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    if user_id != ADMIN_CHAT_ID:
-        if user_id not in daily_limits:
-            daily_limits[user_id] = {"date": today_str, "count": 0}
-        
-        # إعادة تيار المحاولات إذا تغير اليوم
-        if daily_limits[user_id]["date"] != today_str:
-            daily_limits[user_id] = {"date": today_str, "count": 0}
-            
-        # حد الرصيد المجاني اليومي (مثلاً 10 رسائل مجانية)
-        MAX_FREE_DAILY = 10
-        if daily_limits[user_id]["count"] >= MAX_FREE_DAILY:
-            bot.reply_to(message, "⚠️ عذراً يا غالي، لقد استنفدت محاولاتك المجانية (10 رسائل) لهذا اليوم! تجدد المحاولات غداً إن شاء الله. ⏳")
-            return
-        
-        # زيادة عداد المستخدم اليومي
-        daily_limits[user_id]["count"] += 1
 
     user_message = message.text
     try:
@@ -263,7 +247,7 @@ def chat_with_ai(message):
             except Exception as ex:
                 print(f"خطأ في استخراج الملصق: {ex}")
 
-        bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
+        bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
         
         if sticker_to_send:
             bot.send_sticker(message.chat.id, sticker_to_send)
