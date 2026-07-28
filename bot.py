@@ -1,16 +1,27 @@
 import os
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, render_template_string, send_from_directory, request
 
+# بيانات تطبيق تيليجرام الخاص بك (API ID & API HASH)
+API_ID = 20503432
+API_HASH = "26227bf46cdb65744fb4c6572b82bc01"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+# إعداد تطبيق Flask للموقع والسيرفر
 app = Flask(__name__)
-
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# تشغيل عميل Pyrogram الخاص بالبوت
+bot = Client(
+    "tweb_stream_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=TELEGRAM_TOKEN,
+    in_memory=True
+)
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -55,34 +66,15 @@ def stream_video(filename):
 def download_video(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
 
-@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return 'Forbidden', 403
-
-@bot.message_handler(content_types=['video'])
-def handle_video(message):
-    sent_msg = None
+# استقبال رسائل الفيديوهات وحفظها ومعالجتها بتجاوز كامل للحدود
+@bot.on_message(filters.video | filters.document)
+async def handle_video(client, message):
+    sent_msg = await message.reply_text("⏳ جاري سحب ومعالجة المحاضرة الضخمة على السيرفر، يرجى الانتظار...")
     try:
-        sent_msg = bot.reply_to(message, "⏳ جاري تحميل ومعالجة المحاضرة الكبيرة على السيرفر، يرجى الانتظار قليلاً...")
+        # تحميل الملف مباشرة من تيليجرام بأعلى كفاءة وبدون قيود الـ API القديمة
+        file_path_downloaded = await message.download(file_directory=UPLOAD_FOLDER)
         
-        # تحميل الملف مباشرة من تيليجرام وتجاوز قيود الـ API عبر استخدام مكتبة التنزيل المباشر
-        file_info = bot.get_file(message.video.file_id)
-        
-        # لتحميل الملفات الكبيرة، سنقوم بسحبها من رابط البث المباشر للـ API الخاص بتليجرام عبر البايثون
-        import urllib.request
-        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}"
-        
-        filename = f"{message.video.file_id}.mp4"
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        
-        # تنزيل الملف بشكل آمن
-        urllib.request.urlretrieve(file_url, file_path)
+        filename = os.path.basename(file_path_downloaded)
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
@@ -90,44 +82,48 @@ def handle_video(message):
         watch_link = f"{base_url}/watch/{filename}"
         
         response_text = (
-            "✅ تم معالجة وتجهيز المحاضرة الضخمة بنجاح!\n\n"
-            "📺 يمكنك الآن مشاهدتها أو تحميلها من سيرفرك الخاص:"
+            "✅ تم معالجة وتجهيز المحاضرة الضخمة بنجاح تام!\n\n"
+            "📺 يمكنك الآن مشاهدتها أو تحميلها من سيرفرك الخاص بلا حدود:"
         )
         
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link))
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]
+        ])
         
-        bot.edit_message_text(
-            response_text, 
-            chat_id=message.chat.id, 
-            message_id=sent_msg.message_id, 
-            reply_markup=markup
-        )
+        await sent_msg.edit_text(response_text, reply_markup=markup)
     except Exception as e:
         print(f"Error: {e}")
-        error_text = "⚠️ عذراً، حدث خطأ أثناء تنزيل الملف. تأكد من أن السيرفر يعمل بشكل جيد."
-        if sent_msg:
-            bot.edit_message_text(error_text, chat_id=message.chat.id, message_id=sent_msg.message_id)
-        else:
-            bot.reply_to(message, error_text)
+        await sent_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء تنزيل الملف على السيرفر. تأكد من مساحة الذاكرة.")
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
+@bot.on_message(filters.command("start"))
+async def start_command(client, message):
     user = message.from_user
     try:
         if ADMIN_ID:
-            bot.send_message(ADMIN_ID, f"🚨 دخل شخص جديد: {user.first_name} (@{user.username or 'بدون'})", parse_mode="Markdown")
-    except:
-        pass
+            await client.send_message(
+                int(ADMIN_ID), 
+                f"🚨 دخل شخص جديد إلى البوت:\n👤 الاسم: {user.first_name}\n🔗 المعرف: @{user.username or 'بدون'}"
+            )
+    except Exception as e:
+        print(f"Admin notice error: {e}")
 
-    bot.reply_to(message, " أهلاً بك يا أحمد! أرسل أي محاضرة ضخمة وسأقوم بمعالجتها وتوفير روابط المشاهدة والتحميل لها.\n\n👨‍💻 @TWEBII")
+    welcome_text = (
+        "أهلاً بك يا أحمد في بوت TWEB المحدث! 👋\n\n"
+        "📹 أرسل أي محاضرة طويلة (حتى لو تجاوزت الساعة وحجمها كبير جداً)، وسأقوم بمعالجتها فوراً وتوفير روابط المشاهدة والتحميل.\n\n"
+        "👨‍💻 مبرمج البوت: @TWEBII"
+    )
+    await message.reply_text(welcome_text)
 
+# دمج تشغيل Flask مع بوت Pyrogram في نفس السيرفر
 if __name__ == "__main__":
-    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
-    base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
+    import threading
     
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{base_url}/{TELEGRAM_TOKEN}")
-    
+    # تشغيل سيرفر الويب Flask في الخلفية
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, use_reloader=False))
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    print("البوت يعمل الآن بأحدث محرك Pyrogram الخارق...")
+    # تشغيل البوت
+    bot.run()
