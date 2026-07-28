@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import datetime, timedelta
+from flask import Flask, request
 from groq import Groq
 import telebot
 from telebot import types
@@ -11,6 +12,8 @@ GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 # آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
+# رابط مشروعك على Railway
+RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
 # أسماء حزم الملصقات
 STICKER_PACK_NAMES = [
@@ -23,7 +26,7 @@ message_counter = 0
 users_db = set()
 total_messages_sent = 0
 
-# رسالة البدء الافتراضية (قابلة للتعديل من لوحة التحكم)
+# رسالة البدء الافتراضية
 custom_start_message = (
     "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي هنا على تليجرام.\n\n"
     "🛠 **معلومات المطور والقنوات:**\n"
@@ -36,6 +39,7 @@ custom_start_message = (
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+server = Flask(__name__)
 
 # دالة لجلب ملصقات الحزمتين تلقائياً
 def load_sticker_packs():
@@ -99,7 +103,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
         f"📊 **إحصائيات اليوم:**\n"
         f"👥 إجمالي المستخدمين: {len(users_db)}\n"
         f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-        f"⚡️ حالة البوت: يعمل بكفاءة عالية (Groq API)\n"
+        f"⚡️ حالة البوت: يعمل بنظام Webhook (Groq API)\n"
         f"📅 التاريخ: {today_date}"
     )
     
@@ -213,7 +217,7 @@ def handle_business_message(message):
         
         system_content = (
             f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"أسلوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
+            f"أسلوبك هادئ، طبيعي، ووسط، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
             f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
         )
@@ -319,9 +323,22 @@ def chat_with_ai(message):
     except Exception as e:
         bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
 
-if __name__ == "__main__":
-    print("Bot is running...")
-    load_sticker_packs()
+# مسارات سيرفر Flask لاستقبال الـ Webhook
+@server.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
+def redirect_message():
+    json_string = request.get_data().decode("utf-8")
+    update = types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
+
+@server.route("/")
+def webhook():
     bot.remove_webhook()
-    # تم تضمين جميع التحديثات المطلوبة لضمان عمل رسائل الأعمال بشكل مثالي
-    bot.infinity_polling(allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
+    bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}", allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
+    return "Bot is running with Webhook!", 200
+
+if __name__ == "__main__":
+    print("Bot is starting with Webhook...")
+    load_sticker_packs()
+    # تشغيل السيرفر على البورت المطلوب لـ Railway
+    server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
