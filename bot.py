@@ -1,11 +1,9 @@
 import os
-import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, render_template_string, send_from_directory
+from flask import Flask, render_template_string, send_from_directory, request
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
@@ -54,6 +52,17 @@ def stream_video(filename):
 @app.route('/download/<filename>')
 def download_video(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+
+# مسار استقبال التحديثات من تليجرام (Webhook)
+@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Forbidden', 403
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
@@ -115,14 +124,14 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text)
 
-def run_flask():
+if __name__ == "__main__":
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
+    base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
+    
+    # ربط الويب هوك تلقائياً مع تليجرام عند بدء التشغيل
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{base_url}/{TELEGRAM_TOKEN}")
+    
+    print("البوت يعمل بنظام Webhook المستقر عبر Flask...")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    print("البوت وسيرفر الويب يعملان بكفاءة...")
-    bot.infinity_polling(skip_pending=True)
