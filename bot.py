@@ -25,14 +25,13 @@ total_messages_sent = 0
 
 # رسالة البدء الافتراضية (قابلة للتعديل من لوحة التحكم)
 custom_start_message = (
-    "هلا بيكم يا غالي! 🙋‍♂️❤️\n"
-    "أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
+    "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي هنا على تليجرام.\n\n"
     "🛠 **معلومات المطور والقنوات:**\n"
-    "• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
+    "• المطور: أحمد (@TWEBii)\n"
     "• القنوات الرسمية:\n"
-    "  - @lTelegramWeb 🚀\n"
-    "  - @TWEBiii 💡\n\n"
-    "اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
+    "  - @lTelegramWeb\n"
+    "  - @TWEBiii\n\n"
+    "اسألني عن أي شي وتحت أمرك."
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -87,7 +86,7 @@ def admin_command(message):
     if message.from_user.id == ADMIN_CHAT_ID:
         show_admin_panel(message.chat.id, message.message_id, is_new=False)
     else:
-        bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور فقط! ❌")
+        bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور فقط. ❌")
 
 def show_admin_panel(chat_id, msg_id=None, is_new=True):
     global total_messages_sent
@@ -124,12 +123,12 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
 def callback_handler(call):
     global users_db
     if call.from_user.id != ADMIN_CHAT_ID:
-        bot.answer_callback_query(call.id, "هذه القائمة للمطور فقط!", show_alert=True)
+        bot.answer_callback_query(call.id, "هذه القائمة للمطور فقط.", show_alert=True)
         return
 
     if call.data == "admin_panel" or call.data == "refresh_panel":
         show_admin_panel(call.message.chat.id, call.message.message_id, is_new=False)
-        bot.answer_callback_query(call.id, "تم التحديث بنجاح ✅")
+        bot.answer_callback_query(call.id, "تم التحديث بنجاح.")
 
     elif call.data == "close_panel":
         try:
@@ -138,11 +137,11 @@ def callback_handler(call):
             pass
 
     elif call.data == "broadcast_start":
-        msg = bot.send_message(call.message.chat.id, "📢 ارسل الآن رسالة الإذاعة (نص، صورة، أو ملصق) ليتم إرسالها لجميع المستخدمين:")
+        msg = bot.send_message(call.message.chat.id, "أرسل الآن رسالة الإذاعة (نص، صورة، أو ملصق) ليتم إرسالها لجميع المستخدمين:")
         bot.register_next_step_handler(msg, execute_broadcast)
 
     elif call.data == "edit_start_msg":
-        msg = bot.send_message(call.message.chat.id, "✏️ ارسل النص الجديد لرسالة البدء (`/start`) الآن:")
+        msg = bot.send_message(call.message.chat.id, "أرسل النص الجديد لرسالة البدء (`/start`) الآن:")
         bot.register_next_step_handler(msg, save_new_start_message)
 
 def save_new_start_message(message):
@@ -151,7 +150,7 @@ def save_new_start_message(message):
         return
     
     custom_start_message = message.text
-    bot.reply_to(message, "✅ **تم تحديث رسالة البدء بنجاح!**\n\nالرسالة الجديدة ستظهر لأي شخص يرسل `/start` ابتداءً من الآن.", parse_mode="Markdown")
+    bot.reply_to(message, "تم تحديث رسالة البدء بنجاح.", parse_mode="Markdown")
 
 def execute_broadcast(message):
     if message.from_user.id != ADMIN_CHAT_ID:
@@ -159,7 +158,7 @@ def execute_broadcast(message):
     
     sent_count = 0
     fail_count = 0
-    status_msg = bot.reply_to(message, "⏳ جاري إرسال الإذاعة لجميع المستخدمين...")
+    status_msg = bot.reply_to(message, "جاري إرسال الإذاعة لجميع المستخدمين...")
     
     for uid in users_db:
         try:
@@ -169,7 +168,7 @@ def execute_broadcast(message):
             fail_count += 1
 
     bot.edit_message_text(
-        f"✅ **تمت الإذاعة بنجاح!**\n\n"
+        f"تمت الإذاعة بنجاح.\n\n"
         f"📤 تم الإرسال إلى: {sent_count} مستخدم\n"
         f"❌ فشل الإرسال إلى: {fail_count} مستخدم",
         chat_id=message.chat.id,
@@ -180,16 +179,15 @@ def execute_broadcast(message):
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
     if message.chat.type == "private":
-        bot.reply_to(message, "وصلتني الصورة يا غالي! عيوني مشغولة بالكتابة والردود، سولف وياي بالكتابة أو دزلي ملصق أحسن! 😄📸")
+        bot.reply_to(message, "وصلتني الصورة. يفضل مراسلتي بالكتابة أو بالملصقات.")
 
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
     if message.chat.type == "private":
         responses = [
-            "الله، خوش ملصق هذا! هههههه 🤭",
-            "ملصق حلو، عاشت ايدك عليه! 👀",
-            "حلوة هاي الحركة ✨",
-            "ههههه عجبني هذا الملصق 😂"
+            "ملصق جميل.",
+            "تسلم على الملصق.",
+            "حلوة هاي الحركة."
         ]
         bot.reply_to(message, random.choice(responses))
         if cached_stickers and random.random() < 0.5:
@@ -214,10 +212,10 @@ def handle_business_message(message):
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
-            f"أنت مساعد شخصي ذكي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"الوقت والتاريخ الحاليان في العراق هما بالتحديد: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب بدقة بناءً على هذا الوقت. "
-            f"أجب على العميل الذي راسل الحساب بطريقة ودية، بشرية، وذكية، ومختصرة مع استخدام الإيموجي المناسب. "
-            f"إذا ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه. وإذا ذكر البرتقال فأظهر انزعاجك الشديد منه."
+            f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
+            f"ألوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
+            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
+            f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
         )
 
         chat_completion = client.chat.completions.create(
@@ -263,7 +261,7 @@ def chat_with_ai(message):
             return
 
     try:
-        sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
+        sent_msg = bot.reply_to(message, "جاري الرد...")
         
         message_counter += 1
         total_messages_sent += 1
@@ -273,16 +271,16 @@ def chat_with_ai(message):
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
-            f"أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
-            f"ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو المبدع أحمد. "
-            f"الوقت والتاريخ الحاليان في العراق هما بالتحديد: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب فوراً وبدقة تامة بناءً على هذا الوقت. "
-            f"إذا تم ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه بطريقة حلوة وعفوية. "
-            f"لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
-            f"أجب باختصار وذكاء ودون تكلف."
+            f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب وسط ومهذب (لا رسمي منفر ولا ضحك ومزح زائد عن اللزوم)، واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. "
+            f"اسمك تويبي (Tweby) ومطورك هو أحمد. "
+            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
+            f"إذا تم ذكر اسم 'أحمد' أو المطور، تحدث عنه بتقدير. "
+            f"لديك صفة خاصة: أنت تكره فاكهة 'البرتقال' وتعتبرها غير مفضلة، فإذا تم ذكرها أبدى انزعاجك البسيط منها. "
+            f"أجب باختصار ووضوح ودون تكلف."
         )
 
         if should_send_sticker:
-            system_content += f"\nلديك قائمة من الملصقات المتاحة برقم الفهرس من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، قم باختيار رقم ملصق واحد فقط من القائمة يناسب سياق كلام المستخدم، وضع الرقم في نهاية ردك حصراً بهذا الشكل [STICKER:رقم]."
+            system_content += f"\nلديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، اختر رقماً واحداً يناسب السياق وضعه حصراً هكذا [STICKER:رقم]."
 
         chat_completion = client.chat.completions.create(
             messages=[
@@ -320,7 +318,7 @@ def chat_with_ai(message):
             bot.send_sticker(message.chat.id, sticker_to_send)
 
     except Exception as e:
-        bot.reply_to(message, f"صيرت مشكلة بسيطة يا غالي: {str(e)} ⚠️")
+        bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
 
 if __name__ == "__main__":
     print("Bot is running...")
