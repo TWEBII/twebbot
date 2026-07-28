@@ -4,16 +4,15 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, render_template_string, send_from_directory, request
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-
-# تعريف الـ app الخاص بـ Flask (هنا كان الخلل الأساسي)
-app = Flask(__name__)
-
 ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
+
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+app = Flask(__name__)
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -21,10 +20,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     <title>TWEB - مشاهدة الفيديو</title>
     <style>
         body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 30px; margin: 0; }
-        h2 { color: #38bdf8; margin-bottom: 20px; font-size: 28px; letter-spacing: 1px; font-weight: bold; }
+        h2 { color: #38bdf8; margin-bottom: 20px; font-size: 28px; font-weight: bold; }
         .video-container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
         video { width: 100%; border-radius: 8px; outline: none; }
-        .btn { display: inline-block; margin-top: 25px; padding: 12px 25px; background: #38bdf8; color: #0f172a; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.3s; }
+        .btn { display: inline-block; margin-top: 25px; padding: 12px 25px; background: #38bdf8; color: #0f172a; text-decoration: none; font-weight: bold; border-radius: 8px; }
         .btn:hover { background: #0ea5e9; }
         .footer-tag { margin-top: 20px; color: #94a3b8; font-size: 16px; font-weight: bold; }
     </style>
@@ -33,12 +32,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     <h2>TWEB</h2>
     <div class="video-container">
         <video controls autoplay>
-            <source src="{{ url_for('stream_video', filename=filename) }}" type="video/mp4">
+            <source src="/stream/{{ filename }}" type="video/mp4">
             متصفحك لا يدعم عرض الفيديو.
         </video>
     </div>
     <div>
-        <a class="btn" href="{{ url_for('download_video', filename=filename) }}">تحميل الفيديو مباشر 📥</a>
+        <a class="btn" href="/download/{{ filename }}">تحميل الفيديو مباشر 📥</a>
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
@@ -56,7 +55,6 @@ def stream_video(filename):
 def download_video(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
 
-# مسار استقبال التحديثات من تليجرام (Webhook)
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -89,9 +87,7 @@ def handle_video(message):
             "✅ تم رفع الفيديو بنجاح!\n\n"
             "تم إنشاء الروابط الخاصة بالفيديو، ويمكنك استخدامها الآن:\n\n"
             "📺 مشاهدة الفيديو داخل الموقع\n"
-            "اضغط على زر «مشاهدة» لفتح الفيديو مباشرة.\n\n"
-            "📥 تحميل الفيديو\n"
-            "اضغط على زر «تحميل» لتنزيل الفيديو برابط مباشر."
+            "📥 تحميل الفيديو برابط مباشر"
         )
         
         markup = InlineKeyboardMarkup()
@@ -113,6 +109,23 @@ def handle_video(message):
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    user = message.from_user
+    user_id = user.id
+    first_name = user.first_name or "مستخدم"
+    username = f"@{user.username}" if user.username else "لا يوجد معرف"
+    
+    try:
+        if ADMIN_ID:
+            admin_msg = (
+                f"🚨 دخل شخص جديد إلى البوت!\n\n"
+                f"👤 الاسم: {first_name}\n"
+                f"🔗 المعرف: {username}\n"
+                f"🆔 الأيدي: `{user_id}`"
+            )
+            bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error sending admin notification: {e}")
+
     welcome_text = (
         "❏ أهلاً بك! 👋\n\n"
         "📹 أرسل لي أي فيديو، وسأقوم بتحويله فورًا إلى:\n"
@@ -120,7 +133,6 @@ def send_welcome(message):
         "• ⬇️ رابط تحميل مباشر.\n\n"
         "⚡ الخدمة سريعة وسهلة ✓\n\n"
         "👨‍💻 مبرمج البوت✓ : @TWEBII\n"
-        "➖➖➖➖➖➖➖➖➖➖➖\n"
         "➖➖➖➖➖➖➖➖➖➖➖\n"
         "♡ ㅤ  ⎙ㅤ  ⌲        TWEB \n"
         "ˡᶦᵏᵉ    ˢᵃᵛᵉ   ˢʰᵃʳᵉ @lTelegramWeb"
@@ -131,10 +143,9 @@ if __name__ == "__main__":
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
     base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
     
-    # ربط الويب هوك تلقائياً مع تليجرام عند بدء التشغيل
     bot.remove_webhook()
     bot.set_webhook(url=f"{base_url}/{TELEGRAM_TOKEN}")
     
-    print("البوت يعمل بنظام Webhook المستقر عبر Flask...")
+    print("البوت يعمل بنظام Webhook المستقر مع إشعارات الدخول...")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
