@@ -12,6 +12,8 @@ GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 # آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
+# معرف المطور
+ADMIN_USERNAME = "@TWEBii"
 # رابط مشروعك على Railway
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
@@ -65,7 +67,7 @@ def send_welcome(message):
     user_username = f"@{user.username}" if user.username else "بدون معرف"
 
     markup = None
-    if user_id == ADMIN_CHAT_ID:
+    if user_id == ADMIN_CHAT_ID or user.username == "TWEBii":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⚙️ لوحة التحكم الإدارية", callback_data="admin_panel"))
 
@@ -86,7 +88,7 @@ def send_welcome(message):
 # أمر لوحة التحكم للمطور
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
-    if message.from_user.id == ADMIN_CHAT_ID:
+    if message.from_user.id == ADMIN_CHAT_ID or message.from_user.username == "TWEBii":
         show_admin_panel(message.chat.id, message.message_id, is_new=False)
     else:
         bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور. ❌")
@@ -125,7 +127,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     global users_db
-    if call.from_user.id != ADMIN_CHAT_ID:
+    if call.from_user.id != ADMIN_CHAT_ID and call.from_user.username != "TWEBii":
         bot.answer_callback_query(call.id, "هذه القائمة للمطور.", show_alert=True)
         return
 
@@ -149,14 +151,14 @@ def callback_handler(call):
 
 def save_new_start_message(message):
     global custom_start_message
-    if message.from_user.id != ADMIN_CHAT_ID:
+    if message.from_user.id != ADMIN_CHAT_ID and message.from_user.username != "TWEBii":
         return
     
     custom_start_message = message.text
     bot.reply_to(message, "تم تحديث رسالة البدء بنجاح.", parse_mode="Markdown")
 
 def execute_broadcast(message):
-    if message.from_user.id != ADMIN_CHAT_ID:
+    if message.from_user.id != ADMIN_CHAT_ID and message.from_user.username != "TWEBii":
         return
     
     sent_count = 0
@@ -207,6 +209,13 @@ def handle_business_message(message):
     if not user_message:
         return
 
+    if "ملصق" in user_message and cached_stickers:
+        try:
+            bot.send_sticker(message.chat.id, random.choice(cached_stickers), reply_to_message_id=message.message_id)
+            return
+        except Exception as e:
+            print(f"خطأ في إرسال الملصق المباشر للأعمال: {e}")
+
     try:
         total_messages_sent += 1
         
@@ -214,11 +223,11 @@ def handle_business_message(message):
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
-            f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
+            f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد ومعرفه الرسمي هو {ADMIN_USERNAME}. اسمك تويبي (Tweby). "
             f"أسلوبك هادئ، طبيعي، ووسط، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
             f"إذا طلب المستخدم ملصقاً أو كان السياق يتطلب ذلك، ولديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1}، فيمكنك تضمين [STICKER:رقم] في ردك. "
-            f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
+            f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المعرف {ADMIN_USERNAME} أو المطور، فتحدث عنه بكل احترام وتقدير وتوضيح أنه صانعك ومطورك. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
         )
 
         chat_completion = client.chat.completions.create(
@@ -272,10 +281,17 @@ def chat_with_ai(message):
         text_lower = user_message.lower()
         
         mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
-        mentioned_dev = "احمد" in text_lower
+        mentioned_dev = "احمد" in text_lower or "twebii" in text_lower
 
         if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
             return
+
+    if "ملصق" in user_message and cached_stickers:
+        try:
+            bot.send_sticker(message.chat.id, random.choice(cached_stickers), reply_to_message_id=message.message_id)
+            return
+        except Exception as e:
+            print(f"خطأ في إرسال الملصق المباشر: {e}")
 
     try:
         sent_msg = bot.reply_to(message, "جاري الرد...")
@@ -287,9 +303,9 @@ def chat_with_ai(message):
         
         system_content = (
             f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب وسط ومهذب، واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. "
-            f"اسمك تويبي (Tweby) ومطورك هو أحمد. "
+            f"اسمك تويبي (Tweby) ومطورك هو أحمد ومعرفه الرسمي هو {ADMIN_USERNAME}. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
-            f"إذا تم ذكر اسم 'أحمد' أو المطور، تحدث عنه بتقدير. "
+            f"إذا تم ذكر اسم 'أحمد' أو المعرف {ADMIN_USERNAME} أو المطور، تحدث عنه بتقدير كبير واعتبره مطورك وصانعك. "
             f"لديك صفة خاصة: أنت تكره فاكهة 'البرتقال' وتعتبرها غير مفضلة، فإذا تم ذكرها أبدى انزعاجك البسيط منها. "
             f"لديك قائمة ملصقات متاح اختيارها من 0 إلى {len(cached_stickers)-1}. إذا كان السياق مناسباً أو طلب المستخدم ملصقاً، قم بوضع [STICKER:رقم] في نهاية ردك لتتم إرسال الملصق مع الرد."
             f"أجب باختصار ووضوح ودون تكلف."
