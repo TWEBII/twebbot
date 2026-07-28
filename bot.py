@@ -16,8 +16,6 @@ STICKER_PACK_NAMES = [
     "Life_by_maker_Sticker_bot"
 ]
 cached_stickers = []
-
-# متغير لحساب عدد الردود لكل المستخدمين
 message_counter = 0
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -68,17 +66,43 @@ def send_welcome(message):
     except Exception as e:
         print(f"فشل إرسال الإشعار للمطور: {e}")
 
-@bot.message_handler(func=lambda message: True)
+# معالجة الصور المرسلة
+@bot.message_handler(content_types=['photo'])
+def handle_photos(message):
+    try:
+        bot.reply_to(message, "وصلتني الصورة يا غالي! بس عذراً حالياً عيوني متنطشة على الصور فما أگدر أحللها، سولف وياي بالكتابة أو دزلي ملصق أحسن! 😄📸")
+    except Exception as e:
+        print(f"خطأ في معالجة الصورة: {e}")
+
+# معالجة الملصقات المرسلة
+@bot.message_handler(content_types=['sticker'])
+def handle_stickers(message):
+    try:
+        # إذا شخص دز ملصق، نقدر نرد عليه بملصق لطيف من حزماتنا عشوائياً أو برد عفوي
+        responses = [
+            "الله، خوش ملصق هذا! هههههه 🤭",
+            "ملصق حلو، وين لقيته؟ 👀",
+            "حلوة هاي! تسلملي هالضحكة أو الحركة ✨",
+            "ههههه عجبني هذا الملصق عاشت ايدك 😂"
+        ]
+        bot.reply_to(message, random.choice(responses))
+        
+        # أحياناً نرد بملصق أيضاً من الحزمة
+        if cached_stickers and random.random() < 0.5:
+            bot.send_sticker(message.chat.id, random.choice(cached_stickers))
+            
+    except Exception as e:
+        print(f"خطأ في معالجة الملصق: {e}")
+
+# معالجة النصوص العادية (الدردشة والذكاء الاصطناعي)
+@bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global message_counter
     user_message = message.text
     try:
         sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
         
-        # زيادة العداد مع كل رسالة جديدة
         message_counter += 1
-        
-        # تحديد ما إذا كان هذا هو الرد العاشر لإرسال ملصق مناسب
         should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0)
         
         system_content = (
@@ -88,7 +112,6 @@ def chat_with_ai(message):
             "أجب باختصار وذكاء ودون تكلف."
         )
 
-        # إذا وصل العداد إلى 10، نطلب من الذكاء الاصطناعي اختيار ملصق ذكي ومناسب للسياق
         if should_send_sticker:
             system_content += f"\nلديك قائمة من الملصقات المتاحة برقم الفهرس من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، قم باختيار رقم ملصق واحد فقط من القائمة يناسب سياق كلام المستخدم، وضع الرقم في نهاية ردك حصراً بهذا الشكل [STICKER:رقم]."
 
@@ -110,7 +133,6 @@ def chat_with_ai(message):
         ai_response = chat_completion.choices[0].message.content
         
         sticker_to_send = None
-        # استخراج الملصق إذا وجد وتصفيته من النص
         if should_send_sticker and "[STICKER:" in ai_response:
             try:
                 parts = ai_response.split("[STICKER:")
@@ -119,14 +141,12 @@ def chat_with_ai(message):
                 sticker_index = int(sticker_part)
                 if 0 <= sticker_index < len(cached_stickers):
                     sticker_to_send = cached_stickers[sticker_index]
-                    message_counter = 0  # تصفير العداد بعد إرسال الملصق
+                    message_counter = 0
             except Exception as ex:
                 print(f"خطأ في استخراج الملصق: {ex}")
 
-        # تعديل رسالة الانتظار بالنص النهائي
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        # إرسال الملصق المناسب إذا تم تحديده
         if sticker_to_send:
             bot.send_sticker(message.chat.id, sticker_to_send)
 
