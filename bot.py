@@ -91,7 +91,6 @@ def admin_command(message):
 
 def show_admin_panel(chat_id, msg_id=None, is_new=True):
     global total_messages_sent
-    # ضبط تاريخ لوحة التحكم بتوقيت العراق (+3)
     iraq_time = datetime.utcnow() + timedelta(hours=3)
     today_date = iraq_time.strftime("%Y-%m-%d")
     
@@ -196,7 +195,53 @@ def handle_stickers(message):
         if cached_stickers and random.random() < 0.5:
             bot.send_sticker(message.chat.id, random.choice(cached_stickers))
 
-# معالجة النصوص والذكاء الاصطناعي
+# معالجة رسائل تليجرام الأعمال (Secretary Mode)
+@bot.business_message_handler(func=lambda message: True)
+def handle_business_message(message):
+    global message_counter, total_messages_sent
+    user_id = message.from_user.id
+    users_db.add(user_id)
+
+    user_message = message.text
+    if not user_message:
+        return
+
+    try:
+        message_counter += 1
+        total_messages_sent += 1
+        
+        iraq_now = datetime.utcnow() + timedelta(hours=3)
+        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
+        
+        system_content = (
+            f"أنت مساعد شخصي ذكي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
+            f"الوقت والتاريخ الحاليان في العراق هما بالتحديد: {current_time_str}. إذا سألك أي شخص عن الوقت أو التاريخ أو السنة، أجب بدقة بناءً على هذا الوقت. "
+            f"أجب على العميل الذي راسل الحساب بطريقة ودية، بشرية، وذكية، ومختصرة مع استخدام الإيموجي المناسب. "
+            f"إذا ذكر اسم 'أحمد' أو المطور، افتخر به واثنِ عليه. وإذا ذكر البرتقال فأظهر انزعاجك الشديد منه."
+        )
+
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_message}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+        )
+        
+        ai_response = chat_completion.choices[0].message.content
+        
+        bot.send_message(
+            chat_id=message.chat.id, 
+            text=ai_response, 
+            parse_mode="Markdown",
+            reply_to_message_id=message.message_id
+        )
+
+    except Exception as e:
+        print(f"خطأ في معالجة رسالة الأعمال: {e}")
+
+# معالجة النصوص والذكاء الاصطناعي (للخاص والمجموعات)
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global message_counter, total_messages_sent
@@ -224,7 +269,6 @@ def chat_with_ai(message):
         total_messages_sent += 1
         should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
         
-        # ضبط الوقت والتاريخ والسنة بدقة حسب توقيت العراق (UTC+3)
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
@@ -283,49 +327,3 @@ if __name__ == "__main__":
     load_sticker_packs()
     bot.remove_webhook()
     bot.infinity_polling()
-@bot.business_message_handler(func=lambda message: True)
-def handle_business_message(message):
-    global message_counter, total_messages_sent
-    user_id = message.from_user.id
-    users_db.add(user_id)
-
-    user_message = message.text
-    if not user_message:
-        return
-
-    try:
-        # إرسال رد تلقائي من خلال حساب الأعمال
-        message_counter += 1
-        total_messages_sent += 1
-        
-        iraq_now = datetime.utcnow() + timedelta(hours=3)
-        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-        
-        system_content = (
-            f"أنت مساعد شخصي ذكي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"الوقت والتاريخ الحاليان في العراق هما بالتحديد: {current_time_str}. "
-            f"أجب على العميل الذي راسل الحساب بطريقة ودية، بشرية، وذكية، ومختصرة مع استخدام الإيموجي المناسب. "
-            f"إذا سأل عن أحمد فهو مطورك ومبدعك، وإذا ذكر البرتقال فأظهر انزعاجك الشديد منه."
-        )
-
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_message}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-        )
-        
-        ai_response = chat_completion.choices[0].message.content
-        
-        # الرد على الرسالة في حساب الأعمال باستخدام chat_id الخاص بالعميل و message_id
-        bot.send_message(
-            chat_id=message.chat.id, 
-            text=ai_response, 
-            parse_mode="Markdown",
-            reply_to_message_id=message.message_id
-        )
-
-    except Exception as e:
-        print(f"خطأ في معالجة رسالة الأعمال: {e}")
