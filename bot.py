@@ -1,7 +1,7 @@
 import os
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, render_template_string, send_from_directory, request
+from flask import Flask, render_template_string, redirect, request
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
@@ -9,8 +9,8 @@ ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# قاموس مؤقت لتخزين روابط البث المباشر للملفات
+VIDEO_LINKS = {}
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -32,28 +32,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <h2>TWEB</h2>
     <div class="video-container">
         <video controls autoplay>
-            <source src="/stream/{{ filename }}" type="video/mp4">
+            <source src="{{ file_url }}" type="video/mp4">
             متصفحك لا يدعم عرض الفيديو.
         </video>
     </div>
     <div>
-        <a class="btn" href="/download/{{ filename }}">تحميل الفيديو مباشر 📥</a>
+        <a class="btn" href="{{ file_url }}" target="_blank">تحميل الفيديو مباشر 📥</a>
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
 </html>"""
 
-@app.route('/watch/<filename>')
-def watch_video(filename):
-    return render_template_string(HTML_TEMPLATE, filename=filename)
-
-@app.route('/stream/<filename>')
-def stream_video(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
-
-@app.route('/download/<filename>')
-def download_video(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+@app.route('/watch/<file_id>')
+def watch_video(file_id):
+    file_url = VIDEO_LINKS.get(file_id)
+    if not file_url:
+        return "عذراً، انتهت صلاحية الرابط أو الفيديو غير موجود.", 404
+    return render_template_string(HTML_TEMPLATE, file_url=file_url)
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
@@ -68,31 +63,31 @@ def webhook():
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     try:
-        sent_msg = bot.reply_to(message, "⏳ جاري معالجة الفيديو وتجهيز الروابط...")
-        file_info = bot.get_file(message.video.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+        sent_msg = bot.reply_to(message, "⏳ جاري معالجة المحاضرة تجهيز الروابط...")
         
-        filename = f"{message.video.file_id}.mp4"
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        with open(file_path, 'wb') as new_file:
-            new_file.write(downloaded_file)
+        # استخراج رابط الملف المباشر من سيرفرات تيليجرام بدون تحميله محلياً
+        file_info = bot.get_file(message.video.file_id)
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}"
+        
+        # تخزين الرابط مؤقتاً باستخدام معرف الفيديو
+        file_id = message.video.file_id
+        VIDEO_LINKS[file_id] = file_url
         
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
         
-        watch_link = f"{base_url}/watch/{filename}"
-        download_link = f"{base_url}/download/{filename}"
+        watch_link = f"{base_url}/watch/{file_id}"
         
         response_text = (
-            "✅ تم رفع الفيديو بنجاح!\n\n"
-            "تم إنشاء الروابط الخاصة بالفيديو، ويمكنك استخدامها الآن:\n\n"
-            "📺 مشاهدة الفيديو داخل الموقع\n"
+            "✅ تم تجهيز المحاضرة بنجاح!\n\n"
+            "• الحجم كبير؟ لا مشكلة، المعالجة تتم سحابياً وبدون تحميل مسبق!\n\n"
+            "📺 مشاهدة الفيديو داخل الموقع فوراً\n"
             "📥 تحميل الفيديو برابط مباشر"
         )
         
         markup = InlineKeyboardMarkup()
-        watch_btn = InlineKeyboardButton("📺 مشاهدة", url=watch_link)
-        download_btn = InlineKeyboardButton("📥 تحميل", url=download_link)
+        watch_btn = InlineKeyboardButton("📺 مشاهدة المحاضرة", url=watch_link)
+        download_btn = InlineKeyboardButton("📥 تحميل المحاضرة", url=file_url)
         
         markup.add(watch_btn)
         markup.add(download_btn)
@@ -105,7 +100,7 @@ def handle_video(message):
         )
     except Exception as e:
         print(f"Error: {e}")
-        bot.reply_to(message, "عذراً، حدث خطأ أثناء معالجة الفيديو.")
+        bot.reply_to(message, "عذراً، حدث خطأ أثناء معالجة المحاضرة.")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -127,11 +122,11 @@ def send_welcome(message):
         print(f"Error sending admin notification: {e}")
 
     welcome_text = (
-        "❏ أهلاً بك! 👋\n\n"
-        "📹 أرسل لي أي فيديو، وسأقوم بتحويله فورًا إلى:\n"
-        "• 🔗 رابط مشاهدة داخل الموقع.\n"
-        "• ⬇️ رابط تحميل مباشر.\n\n"
-        "⚡ الخدمة سريعة وسهلة ✓\n\n"
+        "❏ أهلاً بك يا غالي! 👋\n\n"
+        "📹 أرسل لي أي محاضرة طويلة، وسأقوم بتحويلها فورًا إلى:\n"
+        "• 🔗 رابط مشاهدة سحابي بدون تحميل.\n"
+        "• ⬇️ رابط تحميل مباشر سريع جداً.\n\n"
+        "⚡ الخدمة مخصصة للفيديوهات الضخمة ✓\n\n"
         "👨‍💻 مبرمج البوت✓ : @TWEBII\n"
         "➖➖➖➖➖➖➖➖➖➖➖\n"
         "♡ ㅤ  ⎙ㅤ  ⌲        TWEB \n"
@@ -146,6 +141,6 @@ if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"{base_url}/{TELEGRAM_TOKEN}")
     
-    print("البوت يعمل بنظام Webhook المستقر مع إشعارات الدخول...")
+    print("البوت يعمل بالطريقة السحابية المباشرة...")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
