@@ -12,21 +12,32 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "أهلاً بك! أنا بوت ذكاء اصطناعي سريع جداً مدعوم بواسطة Groq. ارسل لي أي سؤال وسأجيبك فوراً.")
+    welcome_text = (
+        "هلا بيكم! 🙋‍♂️\n"
+        "أنَا **تويبي (Tweby)**، مو مجرد روبوت بارد.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام.\n\n"
+        "🛠 **معلومات المطور:**\n"
+        "• المطوّر: أحمد (@TWEBii)\n"
+        "• القنوات والمنصات التابعة لنا: TWEB & Basira\n\n"
+        "اسألني عن أي شي، سولف وياي، أو اطلب مني أكتبلك كود برمجي، وأبشر بالخدمة!"
+    )
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: True)
 def chat_with_ai(message):
     user_message = message.text
     try:
-        # إرسال رسالة انتظار للمستخدم
-        sent_msg = bot.reply_to(message, "جاري التفكير...")
+        # رسالة انتظار عفوية وكأنها كتابة بشرية
+        sent_msg =bot.reply_to(message, "جاي أكتب الرد...")
         
-        # استدعاء نموذج Groq
+        # استدعاء نموذج Groq مع توجيه شخصية إنسانية طبيعية
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
-                    "content": "أنت مساعد ذكي ومفيد على تليجرام، أجب بلغة المستخدم وبشكل دقيق.",
+                    "content": (
+                        "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وبأسلوب لطيف (وباللهجة العفوية أو العربية الفصحى القريبة من القلب حسب السياق)، "
+                        "ولا تتصرف أبدًا كأنك روبوت أو ذكاء اصطناعي جامد. اسمك تويبي (Tweby) ومطورك هو أحمد. أجب باختصار وذكاء ودون تكلف."
+                    ),
                 },
                 {
                     "role": "user",
@@ -34,19 +45,18 @@ def chat_with_ai(message):
                 }
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.5,
+            temperature=0.7,
         )
         
         ai_response = chat_completion.choices[0].message.content
-        # تعديل رسالة الانتظار للإجابة النهائية
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
         
     except Exception as e:
-        bot.reply_to(message, f"حدث خطأ ما: {str(e)}")
+        bot.reply_to(message, f"صيرت مشكلة بسيطة: {str(e)}")
 
 # تشغيل البوت
 if __name__ == "__main__":
     print("Bot is running...")
-    bot.remove_webhook()  # حذف أي Webhook قديم عالق لمنع خطأ 409
+    bot.remove_webhook()
     bot.infinity_polling()
  
