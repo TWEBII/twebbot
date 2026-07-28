@@ -86,7 +86,7 @@ def admin_command(message):
     if message.from_user.id == ADMIN_CHAT_ID:
         show_admin_panel(message.chat.id, message.message_id, is_new=False)
     else:
-        bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور فقط. ❌")
+        bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور. ❌")
 
 def show_admin_panel(chat_id, msg_id=None, is_new=True):
     global total_messages_sent
@@ -123,7 +123,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
 def callback_handler(call):
     global users_db
     if call.from_user.id != ADMIN_CHAT_ID:
-        bot.answer_callback_query(call.id, "هذه القائمة للمطور فقط.", show_alert=True)
+        bot.answer_callback_query(call.id, "هذه القائمة للمطور.", show_alert=True)
         return
 
     if call.data == "admin_panel" or call.data == "refresh_panel":
@@ -137,11 +137,11 @@ def callback_handler(call):
             pass
 
     elif call.data == "broadcast_start":
-        msg = bot.send_message(call.message.chat.id, "أرسل الآن رسالة الإذاعة (نص، صورة، أو ملصق) ليتم إرسالها لجميع المستخدمين:")
+        msg = bot.send_message(call.message.chat.id, "أرسل الآن رسالة الإذاعة (نص، صورة، أو ملصق):")
         bot.register_next_step_handler(msg, execute_broadcast)
 
     elif call.data == "edit_start_msg":
-        msg = bot.send_message(call.message.chat.id, "أرسل النص الجديد لرسالة البدء (`/start`) الآن:")
+        msg = bot.send_message(call.message.chat.id, "أرسل النص الجديد لرسالة البدء (`/start`):")
         bot.register_next_step_handler(msg, save_new_start_message)
 
 def save_new_start_message(message):
@@ -158,7 +158,7 @@ def execute_broadcast(message):
     
     sent_count = 0
     fail_count = 0
-    status_msg = bot.reply_to(message, "جاري إرسال الإذاعة لجميع المستخدمين...")
+    status_msg = bot.reply_to(message, "جاري إرسال الإذاعة...")
     
     for uid in users_db:
         try:
@@ -179,7 +179,7 @@ def execute_broadcast(message):
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
     if message.chat.type == "private":
-        bot.reply_to(message, "وصلتني الصورة. يفضل مراسلتي بالكتابة أو بالملصقات.")
+        bot.reply_to(message, "وصلتني الصورة. يفضل مراسلتي بالكتابة.")
 
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
@@ -213,7 +213,7 @@ def handle_business_message(message):
         
         system_content = (
             f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"ألوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
+            f"أسلوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
             f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
         )
@@ -249,7 +249,6 @@ def chat_with_ai(message):
     user_message = message.text
     chat_type = message.chat.type
 
-    # التحقق من شروط المجموعات
     if chat_type in ["group", "supergroup"]:
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         text_lower = user_message.lower()
@@ -271,7 +270,7 @@ def chat_with_ai(message):
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
-            f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب وسط ومهذب (لا رسمي منفر ولا ضحك ومزح زائد عن اللزوم)، واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. "
+            f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب وسط ومهذب، واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. "
             f"اسمك تويبي (Tweby) ومطورك هو أحمد. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
             f"إذا تم ذكر اسم 'أحمد' أو المطور، تحدث عنه بتقدير. "
@@ -324,4 +323,5 @@ if __name__ == "__main__":
     print("Bot is running...")
     load_sticker_packs()
     bot.remove_webhook()
-    bot.infinity_polling()
+    # تم تضمين جميع التحديثات المطلوبة لضمان عمل رسائل الأعمال بشكل مثالي
+    bot.infinity_polling(allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
