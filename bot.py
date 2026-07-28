@@ -3,13 +3,13 @@ import re
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import FloodWait
 from aiohttp import web
 
 API_ID = 20503432
 API_HASH = "26227bf46cdb65744fb4c6572b82bc01"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# تخزين آمن يعتمد على المعرفات فقط لمنع ضياع الروابط عند إعادة تشغيل البوت
 FILE_CACHE = {}
 
 app_bot = Client(
@@ -63,7 +63,7 @@ async def watch(request):
     meta = FILE_CACHE.get(file_id)
     
     if not meta:
-        return web.Response(status=404, text="عذراً، انتهت صلاحية الرابط أو تم إعادة تشغيل البوت. أرسل المحاضرة مجدداً.")
+        return web.Response(status=404, text="عذراً، انتهت صلاحية الرابط. أرسل المحاضرة مجدداً.")
 
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", request.host)
     base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
@@ -80,10 +80,12 @@ async def stream(request):
         return web.Response(status=404, text="الملف غير موجود في الذاكرة المؤقتة.")
 
     try:
-        # جلب الرسالة الحقيقية من تيليجرام عند طلب البث باستخدام chat_id و message_id
+        message = await app_bot.get_messages(meta['chat_id'], meta['message_id'])
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
         message = await app_bot.get_messages(meta['chat_id'], meta['message_id'])
     except Exception as e:
-        return web.Response(status=500, text=f"خطأ في جلب الملف من تيليجرام: {e}")
+        return web.Response(status=500, text=f"خطأ في جلب الملف: {e}")
 
     media = message.video or message.document
     if not media:
@@ -114,7 +116,6 @@ async def stream(request):
     await response.prepare(request)
 
     try:
-        # بث حقيقي أجزاء بأجزاء (Chunk by Chunk) بدون تحميل الملف بالكامل في الذاكرة
         async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
             await response.write(chunk)
     except asyncio.CancelledError:
@@ -126,12 +127,10 @@ async def stream(request):
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
-    msg = await message.reply_text("⏳ جاري تجهيز رابط البث الاحترافي...")
     try:
         media = message.video or message.document
         file_id = media.file_unique_id
         
-        # تخزين المعرفات فقط حسب نصيحة ChatGPT الهندسية
         FILE_CACHE[file_id] = {
             'chat_id': message.chat.id,
             'message_id': message.id
@@ -143,9 +142,11 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك المشاهدة والتقديم بسلاسة:", reply_markup=markup)
+        await message.reply_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك المشاهدة والتقديم بسلاسة:", reply_markup=markup)
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
     except Exception as e:
-        await msg.edit_text(f"⚠️ حدث خطأ: {e}")
+        print(f"Error handling media: {e}")
 
 @app_bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
