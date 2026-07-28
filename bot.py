@@ -41,7 +41,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
     <h2>TWEB Cloud Stream</h2>
     <div class="video-container">
-        <video controls playsinline preload="metadata">
+        <video controls autoplay playsinline preload="auto">
             <source src="{stream_url}" type="video/mp4">
             متصفحك لا يدعم تشغيل الفيديو.
         </video>
@@ -63,7 +63,7 @@ async def watch(request):
     meta = FILE_CACHE.get(file_id)
     
     if not meta:
-        return web.Response(status=404, text="عذراً، انتهت صلاحية الرابط. أرسل المحاضرة مجدداً.")
+        return web.Response(status=404, text="عذراً، انتهت صلاحية الرابط. أرسل المحاضرة مجدداً للبوت.")
 
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", request.host)
     base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
@@ -77,7 +77,7 @@ async def stream(request):
     meta = FILE_CACHE.get(file_id)
     
     if not meta:
-        return web.Response(status=404, text="الملف غير موجود في الذاكرة المؤقتة.")
+        return web.Response(status=404, text="الملف غير موجود في الذاكرة.")
 
     try:
         message = await app_bot.get_messages(meta['chat_id'], meta['message_id'])
@@ -110,6 +110,7 @@ async def stream(request):
         'Accept-Ranges': 'bytes',
         'Content-Range': f'bytes {offset}-{offset + limit - 1}/{file_size}',
         'Content-Length': str(limit),
+        'Connection': 'keep-alive',
     }
 
     response = web.StreamResponse(status=206 if range_header else 200, headers=headers)
@@ -142,7 +143,7 @@ async def handle_media(client, message):
         watch_link = f"{base_url}/watch/{file_id}"
         
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await message.reply_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك المشاهدة والتقديم بسلاسة:", reply_markup=markup)
+        await message.reply_text("✅ تم تجهيز رابط البث بنجاح!\n\nاضغط للمشاهدة فوراً:", reply_markup=markup)
     except FloodWait as e:
         await asyncio.sleep(e.value)
     except Exception as e:
