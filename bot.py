@@ -12,9 +12,7 @@ app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# قالب صفحة المشاهدة
-HTML_TEMPLATE = """
-<!DOCTYPE html>
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -43,8 +41,7 @@ HTML_TEMPLATE = """
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
-</html>
-"""
+</html>"""
 
 @app.route('/watch/<filename>')
 def watch_video(filename):
@@ -76,7 +73,6 @@ def handle_video(message):
         watch_link = f"{base_url}/watch/{filename}"
         download_link = f"{base_url}/download/{filename}"
         
-        # النص المطلوب مع الأزرار الشفافة المنفصلة
         response_text = (
             "✅ تم رفع الفيديو بنجاح!\n\n"
             "تم إنشاء الروابط الخاصة بالفيديو، ويمكنك استخدامها الآن:\n\n"
@@ -124,69 +120,6 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    print("البوت وسيرفر الويب يعملان بكفاءة...")
-    bot.infinity_polling(skip_pending=True)
-        </video>
-    </div>
-    <div>
-        <a class="btn" href="{{ url_for('download_video', filename=filename) }}">تحميل الفيديو مباشر 📥</a>
-    </div>
-</body>
-</html>
-"""
-
-@app.route('/watch/<filename>')
-def watch_video(filename):
-    return render_template_string(HTML_TEMPLATE, filename=filename)
-
-@app.route('/stream/<filename>')
-def stream_video(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
-
-@app.route('/download/<filename>')
-def download_video(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
-
-@bot.message_handler(content_types=['video'])
-def handle_video(message):
-    try:
-        sent_msg = bot.reply_to(message, "جاري معالجة الفيديو ورفع روابطه... ⏳")
-        file_info = bot.get_file(message.video.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        
-        filename = f"{message.video.file_id}.mp4"
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        with open(file_path, 'wb') as new_file:
-            new_file.write(downloaded_file)
-        
-        # جلب الدومين الأساسي للموقع من متغيرات البيئة أو استبداله برابط مشروعك على Railway
-        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
-        base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
-        
-        watch_link = f"{base_url}/watch/{filename}"
-        download_link = f"{base_url}/download/{filename}"
-        
-        response_text = f"✅ **تم رفع الفيديو وتوليد الروابط بنجاح!**\n\n📺 [اضغط هنا للمشاهدة داخل الموقع]({watch_link})\n📥 [اضغط هنا للتحميل المباشر]({download_link})"
-        
-        bot.edit_message_text(response_text, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
-    except Exception as e:
-        print(f"Error: {e}")
-        bot.reply_to(message, "عذراً، حدث خطأ أثناء معالجة الفيديو.")
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "أهلاً بك! أرسل لي أي فيديو وسأقوم بتحويله فوراً إلى رابط مشاهدة داخل الموقع ورابط تحميل مباشر.")
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
-if __name__ == "__main__":
-    # تشغيل سيرفر الويب في خلفية النظام
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
