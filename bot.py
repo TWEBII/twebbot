@@ -10,12 +10,15 @@ TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 # آيدي حسابك لتلقي الإشعارات
 ADMIN_CHAT_ID = "8411608232" 
 
-# أسماء حزم الملصقات التي أرسلتها (سيقوم البوت بدمج وسحب الملصقات منها)
+# أسماء حزم الملصقات
 STICKER_PACK_NAMES = [
     "Funnyye_by_maker_Sticker_bot",
     "Life_by_maker_Sticker_bot"
 ]
 cached_stickers = []
+
+# متغير لحساب عدد الردود لكل المستخدمين
+message_counter = 0
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -67,20 +70,33 @@ def send_welcome(message):
 
 @bot.message_handler(func=lambda message: True)
 def chat_with_ai(message):
+    global message_counter
     user_message = message.text
     try:
         sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
         
+        # زيادة العداد مع كل رسالة جديدة
+        message_counter += 1
+        
+        # تحديد ما إذا كان هذا هو الرد العاشر لإرسال ملصق مناسب
+        should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0)
+        
+        system_content = (
+            "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
+            "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو أحمد. "
+            "لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
+            "أجب باختصار وذكاء ودون تكلف."
+        )
+
+        # إذا وصل العداد إلى 10، نطلب من الذكاء الاصطناعي اختيار ملصق ذكي ومناسب للسياق
+        if should_send_sticker:
+            system_content += f"\nلديك قائمة من الملصقات المتاحة برقم الفهرس من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، قم باختيار رقم ملصق واحد فقط من القائمة يناسب سياق كلام المستخدم، وضع الرقم في نهاية ردك حصراً بهذا الشكل [STICKER:رقم]."
+
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
-                        "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو أحمد. "
-                        "لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
-                        "أجب باختصار وذكاء ودون تكلف."
-                    ),
+                    "content": system_content,
                 },
                 {
                     "role": "user",
@@ -92,18 +108,33 @@ def chat_with_ai(message):
         )
         
         ai_response = chat_completion.choices[0].message.content
+        
+        sticker_to_send = None
+        # استخراج الملصق إذا وجد وتصفيته من النص
+        if should_send_sticker and "[STICKER:" in ai_response:
+            try:
+                parts = ai_response.split("[STICKER:")
+                ai_response = parts[0].strip()
+                sticker_part = parts[1].split("]")[0].strip()
+                sticker_index = int(sticker_part)
+                if 0 <= sticker_index < len(cached_stickers):
+                    sticker_to_send = cached_stickers[sticker_index]
+                    message_counter = 0  # تصفير العداد بعد إرسال الملصق
+            except Exception as ex:
+                print(f"خطأ في استخراج الملصق: {ex}")
+
+        # تعديل رسالة الانتظار بالنص النهائي
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        # إرسال ملصق عشوائي من الحزمتين بنسبة 35% مع الردود
-        if cached_stickers and random.random() < 0.35:
-            chosen_sticker = random.choice(cached_stickers)
-            bot.send_sticker(message.chat.id, chosen_sticker)
+        # إرسال الملصق المناسب إذا تم تحديده
+        if sticker_to_send:
+            bot.send_sticker(message.chat.id, sticker_to_send)
 
     except Exception as e:
         bot.reply_to(message, f"صيرت مشكلة بسيطة يا غالي: {str(e)} ⚠️")
 
 if __name__ == "__main__":
     print("Bot is running...")
-    load_sticker_packs()  # تحميل الحزمتين عند بدء التشغيل
+    load_sticker_packs()
     bot.remove_webhook()
     bot.infinity_polling()
