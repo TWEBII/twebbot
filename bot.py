@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import datetime, timedelta
+from flask import Flask, request
 from groq import Groq
 import telebot
 from telebot import types
@@ -11,6 +12,8 @@ GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 # آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
+# رابط مشروعك على Railway
+RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
 # أسماء حزم الملصقات
 STICKER_PACK_NAMES = [
@@ -18,12 +21,11 @@ STICKER_PACK_NAMES = [
     "Life_by_maker_Sticker_bot"
 ]
 cached_stickers = []
-message_counter = 0
 
 users_db = set()
 total_messages_sent = 0
 
-# رسالة البدء الافتراضية (قابلة للتعديل من لوحة التحكم)
+# رسالة البدء الافتراضية
 custom_start_message = (
     "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي هنا على تليجرام.\n\n"
     "🛠 **معلومات المطور والقنوات:**\n"
@@ -36,6 +38,7 @@ custom_start_message = (
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+server = Flask(__name__)
 
 # دالة لجلب ملصقات الحزمتين تلقائياً
 def load_sticker_packs():
@@ -99,7 +102,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
         f"📊 **إحصائيات اليوم:**\n"
         f"👥 إجمالي المستخدمين: {len(users_db)}\n"
         f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-        f"⚡️ حالة البوت: يعمل بكفاءة عالية (Groq API)\n"
+        f"⚡️ حالة البوت: يعمل بنظام Webhook (Groq API)\n"
         f"📅 التاريخ: {today_date}"
     )
     
@@ -196,7 +199,7 @@ def handle_stickers(message):
 # معالجة رسائل تليجرام الأعمال (Secretary Mode)
 @bot.business_message_handler(func=lambda message: True)
 def handle_business_message(message):
-    global message_counter, total_messages_sent
+    global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
 
@@ -205,7 +208,6 @@ def handle_business_message(message):
         return
 
     try:
-        message_counter += 1
         total_messages_sent += 1
         
         iraq_now = datetime.utcnow() + timedelta(hours=3)
@@ -213,8 +215,9 @@ def handle_business_message(message):
         
         system_content = (
             f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"أسلوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
+            f"أسلوبك هادئ، طبيعي، ووسط، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
+            f"إذا طلب المستخدم ملصقاً أو كان السياق يتطلب ذلك، ولديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1}، فيمكنك تضمين [STICKER:رقم] في ردك. "
             f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
         )
 
@@ -229,12 +232,27 @@ def handle_business_message(message):
         
         ai_response = chat_completion.choices[0].message.content
         
-        bot.send_message(
+        sticker_to_send = None
+        if cached_stickers and "[STICKER:" in ai_response:
+            try:
+                parts = ai_response.split("[STICKER:")
+                ai_response = parts[0].strip()
+                sticker_part = parts[1].split("]")[0].strip()
+                sticker_index = int(sticker_part)
+                if 0 <= sticker_index < len(cached_stickers):
+                    sticker_to_send = cached_stickers[sticker_index]
+            except Exception as ex:
+                print(f"خطأ في استخراج الملصق: {ex}")
+
+        sent_msg = bot.send_message(
             chat_id=message.chat.id, 
-            text=ai_response, 
+            text=ai_response if ai_response else "أهلاً بك.", 
             parse_mode="Markdown",
             reply_to_message_id=message.message_id
         )
+        
+        if sticker_to_send:
+            bot.send_sticker(message.chat.id, sticker_to_send, reply_to_message_id=sent_msg.message_id)
 
     except Exception as e:
         print(f"خطأ في معالجة رسالة الأعمال: {e}")
@@ -242,7 +260,7 @@ def handle_business_message(message):
 # معالجة النصوص والذكاء الاصطناعي (للخاص والمجموعات)
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
-    global message_counter, total_messages_sent
+    global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
 
@@ -262,9 +280,7 @@ def chat_with_ai(message):
     try:
         sent_msg = bot.reply_to(message, "جاري الرد...")
         
-        message_counter += 1
         total_messages_sent += 1
-        should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
         
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
@@ -275,11 +291,9 @@ def chat_with_ai(message):
             f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
             f"إذا تم ذكر اسم 'أحمد' أو المطور، تحدث عنه بتقدير. "
             f"لديك صفة خاصة: أنت تكره فاكهة 'البرتقال' وتعتبرها غير مفضلة، فإذا تم ذكرها أبدى انزعاجك البسيط منها. "
+            f"لديك قائمة ملصقات متاح اختيارها من 0 إلى {len(cached_stickers)-1}. إذا كان السياق مناسباً أو طلب المستخدم ملصقاً، قم بوضع [STICKER:رقم] في نهاية ردك لتتم إرسال الملصق مع الرد."
             f"أجب باختصار ووضوح ودون تكلف."
         )
-
-        if should_send_sticker:
-            system_content += f"\nلديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، اختر رقماً واحداً يناسب السياق وضعه حصراً هكذا [STICKER:رقم]."
 
         chat_completion = client.chat.completions.create(
             messages=[
@@ -299,7 +313,7 @@ def chat_with_ai(message):
         ai_response = chat_completion.choices[0].message.content
         
         sticker_to_send = None
-        if should_send_sticker and "[STICKER:" in ai_response:
+        if cached_stickers and "[STICKER:" in ai_response:
             try:
                 parts = ai_response.split("[STICKER:")
                 ai_response = parts[0].strip()
@@ -307,21 +321,32 @@ def chat_with_ai(message):
                 sticker_index = int(sticker_part)
                 if 0 <= sticker_index < len(cached_stickers):
                     sticker_to_send = cached_stickers[sticker_index]
-                    message_counter = 0
             except Exception as ex:
                 print(f"خطأ في استخراج الملصق: {ex}")
 
-        bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
+        bot.edit_message_text(ai_response if ai_response else "تفضل.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
         
-        if sticker_to_send and chat_type == "private":
+        if sticker_to_send:
             bot.send_sticker(message.chat.id, sticker_to_send)
 
     except Exception as e:
         bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
 
-if __name__ == "__main__":
-    print("Bot is running...")
-    load_sticker_packs()
+# مسارات سيرفر Flask لاستقبال الـ Webhook
+@server.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
+def redirect_message():
+    json_string = request.get_data().decode("utf-8")
+    update = types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
+
+@server.route("/")
+def webhook():
     bot.remove_webhook()
-    # تم تضمين جميع التحديثات المطلوبة لضمان عمل رسائل الأعمال بشكل مثالي
-    bot.infinity_polling(allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
+    bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}", allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
+    return "Bot is running with Webhook!", 200
+
+if __name__ == "__main__":
+    print("Bot is starting with Webhook...")
+    load_sticker_packs()
+    server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
