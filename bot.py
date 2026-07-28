@@ -13,12 +13,14 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
-        "هلا بيكم! 🙋‍♂️\n"
-        "أنَا **تويبي (Tweby)**، مو مجرد روبوت بارد.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام.\n\n"
-        "🛠 **معلومات المطور:**\n"
-        "• المطوّر: أحمد (@TWEBii)\n"
-        "• القنوات والمنصات التابعة لنا: TWEB & Basira\n\n"
-        "اسألني عن أي شي، سولف وياي، أو اطلب مني أكتبلك كود برمجي، وأبشر بالخدمة!"
+        "هلا بيكم! 🙋‍♂️❤️\n"
+        "أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
+        "🛠 **معلومات المطور والقنوات:**\n"
+        "• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
+        "• القنوات الرسمية:\n"
+        "  - @lTelegramWeb 🚀\n"
+        "  - @TWEBiii 💡\n\n"
+        "اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
@@ -26,17 +28,19 @@ def send_welcome(message):
 def chat_with_ai(message):
     user_message = message.text
     try:
-        # رسالة انتظار عفوية وكأنها كتابة بشرية
-        sent_msg =bot.reply_to(message, "جاي أكتب الرد...")
+        # رسالة انتظار عفوية مع إيموجي
+        sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
         
-        # استدعاء نموذج Groq مع توجيه شخصية إنسانية طبيعية
+        # استدعاء نموذج Groq مع توجيه الشخصية الإنسانية وكره البرتقال
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وبأسلوب لطيف (وباللهجة العفوية أو العربية الفصحى القريبة من القلب حسب السياق)، "
-                        "ولا تتصرف أبدًا كأنك روبوت أو ذكاء اصطناعي جامد. اسمك تويبي (Tweby) ومطورك هو أحمد. أجب باختصار وذكاء ودون تكلف."
+                        "أنت شخص حقيقي وطبيعي تماماً وتتحدث بطريقة ودية، بشرية، وتستخدم الإيموجي بشكل مناسب وجميل أثناء الكلام، "
+                        "ولا تتصرف أبدًا كأنك روبوت. اسمك تويبي (Tweby) ومطورك هو أحمد. "
+                        "لديك صفة خاصة جداً: أنت تكره فاكهة 'البرتقال' بشدة وتعتبرها أسوأ شيء في الوجود، فإذا تم ذكر البرتقال أو سألت عنه، أظهر انزعاجك الشديد ورفضك له بطريقة عفوية وساخرة. "
+                        "أجب باختصار وذكاء ودون تكلف."
                     ),
                 },
                 {
@@ -52,11 +56,10 @@ def chat_with_ai(message):
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
         
     except Exception as e:
-        bot.reply_to(message, f"صيرت مشكلة بسيطة: {str(e)}")
+        bot.reply_to(message, f"صيرت مشكلة بسيطة يا غالي: {str(e)} ⚠️")
 
 # تشغيل البوت
 if __name__ == "__main__":
     print("Bot is running...")
     bot.remove_webhook()
     bot.infinity_polling()
- 
