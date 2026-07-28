@@ -1,9 +1,7 @@
 import os
-import re
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import FloodWait
 from aiohttp import web
 
 API_ID = 20503432
@@ -22,114 +20,35 @@ app_bot = Client(
 
 routes = web.RouteTableDef()
 
-HTML_PAGE = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TWEB Cloud Stream</title>
-    <style>
-        body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 30px; margin: 0; }
-        h2 { color: #38bdf8; margin-bottom: 20px; font-size: 28px; font-weight: bold; }
-        .video-container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        video { width: 100%; border-radius: 8px; outline: none; }
-        .btn { display: inline-block; margin-top: 25px; padding: 12px 25px; background: #38bdf8; color: #0f172a; text-decoration: none; font-weight: bold; border-radius: 8px; }
-        .btn:hover { background: #0ea5e9; }
-        .footer-tag { margin-top: 20px; color: #94a3b8; font-size: 16px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h2>TWEB Cloud Stream</h2>
-    <div class="video-container">
-        <video controls playsinline preload="metadata">
-            <source src="{stream_url}" type="video/mp4">
-            متصفحك لا يدعم تشغيل الفيديو.
-        </video>
-    </div>
-    <div>
-        <a class="btn" href="{stream_url}" download>تحميل المحاضرة برابط مباشر 📥</a>
-    </div>
-    <div class="footer-tag">@TWEBiii</div>
-</body>
-</html>"""
-
 @routes.get('/')
 async def index(request):
     return web.Response(text="TWEB Cloud Stream Bot is Active!", content_type='text/plain')
 
-@routes.get('/watch/{file_id}')
-async def watch(request):
+@routes.get('/direct/{file_id}')
+async def direct_stream(request):
     file_id = request.match_info['file_id']
     meta = FILE_CACHE.get(file_id)
     
     if not meta:
-        return web.Response(status=404, text="عذراً، انتهت صلاحية الرابط. أرسل المحاضرة مجدداً للبوت.")
-
-    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", request.host)
-    base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
-    stream_url = f"{base_url}/stream/{file_id}"
-    
-    return web.Response(text=HTML_PAGE.replace("{stream_url}", stream_url), content_type='text/html')
-
-@routes.get('/stream/{file_id}')
-async def stream(request):
-    file_id = request.match_info['file_id']
-    meta = FILE_CACHE.get(file_id)
-    
-    if not meta:
-        return web.Response(status=404, text="الملف غير موجود في الذاكرة.")
+        return web.Response(status=404, text="الملف غير موجود أو انتهت صلاحيته.")
 
     try:
         message = await app_bot.get_messages(meta['chat_id'], meta['message_id'])
-    except FloodWait as e:
-        await asyncio.sleep(e.value)
-        message = await app_bot.get_messages(meta['chat_id'], meta['message_id'])
-    except Exception as e:
-        return web.Response(status=500, text=f"خطأ في جلب الملف: {e}")
-
-    media = message.video or message.document
-    if not media:
-        return web.Response(status=404, text="الوسائط غير موجودة.")
-
-    file_size = media.file_size
-    offset = 0
-    limit = file_size
-    
-    # معالجة طلبات الـ Range بدقة تامة كما نصح ChatGPT
-    range_header = request.headers.get('Range', '')
-    if range_header:
-        match = re.search(r'bytes=(\d+)-(\d*)', range_header)
-        if match:
-            offset = int(match.group(1))
-            if match.group(2):
-                limit = int(match.group(2)) + 1 - offset
-            else:
-                limit = file_size - offset
-
-    headers = {
-        'Content-Type': 'video/mp4',
-        'Accept-Ranges': 'bytes',
-        'Content-Range': f'bytes {offset}-{offset + limit - 1}/{file_size}',
-        'Content-Length': str(limit),
-        'Cache-Control': 'public, max-age=3600',
-    }
-
-    # استخدام Status 206 لطلبات الـ Range أو 200 للطلب العادي
-    status_code = 206 if range_header else 200
-    response = web.StreamResponse(status=status_code, headers=headers)
-    await response.prepare(request)
-
-    try:
-        # البث المباشر عبر stream_media دون تحميل الملف في الذاكرة
-        async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
+        media = message.video or message.document
+        
+        # فتح اتصال تدريجي مباشر وسريع جداً بدون تعقيد ليعمل المشغل الخارجي فوراً
+        response = web.StreamResponse()
+        response.content_type = 'video/mp4'
+        response.headers['Accept-Ranges'] = 'bytes'
+        await response.prepare(request)
+        
+        async for chunk in app_bot.stream_media(message):
             await response.write(chunk)
             await response.drain()
-    except (asyncio.CancelledError, ConnectionResetError):
-        pass
+            
+        return response
     except Exception as e:
-        print(f"Stream Error: {e}")
-
-    return response
+        return web.Response(status=500, text=f"خطأ في البث: {e}")
 
 @app_bot.on_message(filters.video | filters.document)
 async def handle_media(client, message):
@@ -145,18 +64,17 @@ async def handle_media(client, message):
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
         
-        watch_link = f"{base_url}/watch/{file_id}"
+        direct_link = f"{base_url}/direct/{file_id}"
         
-        markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-        await message.reply_text("✅ تم تجهيز رابط البث الاحترافي بنجاح:", reply_markup=markup)
-    except FloodWait as e:
-        await asyncio.sleep(e.value)
+        # زر يفتح الرابط المباشر للخارج (ليفتحه مشغل الهاتف أو المتصفح الخارجي فوراً)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 تشغيل مباشر في المشغل", url=direct_link)]])
+        await message.reply_text("✅ تم تجهيز الرابط المباشر السريع:", reply_markup=markup)
     except Exception as e:
         print(f"Error: {e}")
 
 @app_bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم بتفعيل البث المباشر لها.")
+    await message.reply_text("أهلاً بك يا أحمد في بوت TWEB السحابي المطور! 👋\n\nأرسل أي محاضرة وسأقوم بتجهيز رابط التشغيل الفوري لها.")
 
 async def web_server():
     app = web.Application()
@@ -170,8 +88,9 @@ async def web_server():
 async def main():
     await app_bot.start()
     await web_server()
-    await asyncio.Event().wait()
+    asyncio.get_event_loop().run_forever()
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
+ 
