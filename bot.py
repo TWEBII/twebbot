@@ -6,23 +6,43 @@ import telebot
 GROQ_API_KEY = "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"
 # توكن بوت التليجرام الخاص بك
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
+# آيدي حسابك لتلقي الإشعارات (المطور)
+ADMIN_CHAT_ID = "8411608232" 
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
+    user = message.from_user
+    user_name = user.first_name if user.first_name else "مستخدم"
+    user_username = f"@{user.username}" if user.username else "بدون معرف"
+    user_id = user.id
+
+    # إرسال ترحيب للمستخدم
     welcome_text = (
-        "هلا بيكم! 🙋‍♂️❤️\n"
-        "أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
-        "🛠 **معلومات المطور والقنوات:**\n"
-        "• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
-        "• القنوات الرسمية:\n"
-        "  - @lTelegramWeb 🚀\n"
-        "  - @TWEBiii 💡\n\n"
-        "اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
+        f"هلا بيكم يا غالي! 🙋‍♂️❤️\n"
+        f"أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
+        f"🛠 **معلومات المطور والقنوات:**\n"
+        f"• المطوّر: أحمد (@TWEBii) 👨‍💻\n"
+        f"• القنوات الرسمية:\n"
+        f"  - @lTelegramWeb 🚀\n"
+        f"  - @TWEBiii 💡\n\n"
+        f"اسألني عن أي شي، سولف وياي، وبأسرع وقت أبشر بالخدمة! 🔥"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
+    # إرسال إشعار لك بأن شخصاً جديداً دخل البوت
+    try:
+        notification = (
+            f"🚨 **تنبيه دخول شخص جديد للبوت!**\n\n"
+            f"👤 الاسم: {user_name}\n"
+            f"🔗 المعرف: {user_username}\n"
+            f"🆔 الأيدي: `{user_id}`"
+        )
+        bot.send_message(ADMIN_CHAT_ID, notification, parse_mode="Markdown")
+    except Exception as e:
+        print(f"فشل إرسال الإشعار للمطور: {e}")
 
 @bot.message_handler(func=lambda message: True)
 def chat_with_ai(message):
@@ -63,3 +83,4 @@ if __name__ == "__main__":
     print("Bot is running...")
     bot.remove_webhook()
     bot.infinity_polling()
+ 
