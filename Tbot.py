@@ -2,15 +2,12 @@ import os
 import telebot
 import google.generativeai as genai
 
-# جلب التوكنات من متغيرات البيئة
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# إعداد جيميني
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-pro')
 
-# إعداد البوت
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 @bot.message_handler(commands=['start', 'help'])
