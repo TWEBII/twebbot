@@ -1,4 +1,5 @@
 import os
+import random
 from groq import Groq
 import telebot
 
@@ -6,11 +7,33 @@ import telebot
 GROQ_API_KEY = "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"
 # توكن بوت التليجرام الخاص بك
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-# آيدي حسابك لتلقي الإشعارات (المطور)
+# آيدي حسابك لتلقي الإشعارات
 ADMIN_CHAT_ID = "8411608232" 
+
+# أسماء حزم الملصقات التي أرسلتها (سيقوم البوت بدمج وسحب الملصقات منها)
+STICKER_PACK_NAMES = [
+    "Funnyye_by_maker_Sticker_bot",
+    "Life_by_maker_Sticker_bot"
+]
+cached_stickers = []
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+
+# دالة لجلب ملصقات الحزمتين تلقائياً عند تشغيل البوت
+def load_sticker_packs():
+    global cached_stickers
+    all_stickers = []
+    for pack_name in STICKER_PACK_NAMES:
+        try:
+            pack = bot.get_sticker_set(pack_name)
+            stickers = [sticker.file_id for sticker in pack.stickers]
+            all_stickers.extend(stickers)
+            print(f"تم تحميل {len(stickers)} ملصقاً من الحزمة: {pack_name}")
+        except Exception as e:
+            print(f"فشل تحميل الحزمة {pack_name}: {e}")
+    cached_stickers = all_stickers
+    print(f"إجمالي الملصقات الجاهزة: {len(cached_stickers)}")
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -19,7 +42,6 @@ def send_welcome(message):
     user_username = f"@{user.username}" if user.username else "بدون معرف"
     user_id = user.id
 
-    # إرسال ترحيب للمستخدم
     welcome_text = (
         f"هلا بيكم يا غالي! 🙋‍♂️❤️\n"
         f"أنَا **تويبي (Tweby)**، مو مجرد روبوت.. أني صديقك الذكي ومساعدك الشخصي هنا على تليجرام. ✨\n\n"
@@ -32,7 +54,6 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-    # إرسال إشعار لك بأن شخصاً جديداً دخل البوت
     try:
         notification = (
             f"🚨 **تنبيه دخول شخص جديد للبوت!**\n\n"
@@ -48,10 +69,8 @@ def send_welcome(message):
 def chat_with_ai(message):
     user_message = message.text
     try:
-        # رسالة انتظار عفوية مع إيموجي
         sent_msg = bot.reply_to(message, "جاي أكتب الرد... ✍️⏳")
         
-        # استدعاء نموذج Groq مع توجيه الشخصية الإنسانية وكره البرتقال
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -75,12 +94,16 @@ def chat_with_ai(message):
         ai_response = chat_completion.choices[0].message.content
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id)
         
+        # إرسال ملصق عشوائي من الحزمتين بنسبة 35% مع الردود
+        if cached_stickers and random.random() < 0.35:
+            chosen_sticker = random.choice(cached_stickers)
+            bot.send_sticker(message.chat.id, chosen_sticker)
+
     except Exception as e:
         bot.reply_to(message, f"صيرت مشكلة بسيطة يا غالي: {str(e)} ⚠️")
 
-# تشغيل البوت
 if __name__ == "__main__":
     print("Bot is running...")
+    load_sticker_packs()  # تحميل الحزمتين عند بدء التشغيل
     bot.remove_webhook()
     bot.infinity_polling()
- 
