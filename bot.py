@@ -6,18 +6,12 @@ from groq import Groq
 import telebot
 from telebot import types
 
-# مفتاح Groq الخاص بك
 GROQ_API_KEY = "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"
-# توكن بوت التليجرام الخاص بك
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-# آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
-# معرف المطور
 ADMIN_USERNAME = "@TWEBii"
-# رابط مشروعك على Railway
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-# أسماء حزم الملصقات
 STICKER_PACK_NAMES = [
     "Funnyye_by_maker_Sticker_bot",
     "Life_by_maker_Sticker_bot"
@@ -27,7 +21,6 @@ cached_stickers = []
 users_db = set()
 total_messages_sent = 0
 
-# رسالة البدء الافتراضية
 custom_start_message = (
     "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي هنا على تليجرام.\n\n"
     "🛠 **معلومات المطور والقنوات:**\n"
@@ -42,7 +35,6 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
-# دالة لجلب ملصقات الحزمتين تلقائياً
 def load_sticker_packs():
     global cached_stickers
     all_stickers = []
@@ -56,7 +48,6 @@ def load_sticker_packs():
             print(f"فشل تحميل الحزمة {pack_name}: {e}")
     cached_stickers = all_stickers
 
-# أمر البدء وترحيب المستخدمين
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     user = message.from_user
@@ -85,7 +76,6 @@ def send_welcome(message):
         except Exception as e:
             print(f"فشل إرسال الإشعار: {e}")
 
-# أمر لوحة التحكم للمطور
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
     if message.from_user.id == ADMIN_CHAT_ID or message.from_user.username == "TWEBii":
@@ -153,32 +143,24 @@ def save_new_start_message(message):
     global custom_start_message
     if message.from_user.id != ADMIN_CHAT_ID and message.from_user.username != "TWEBii":
         return
-    
     custom_start_message = message.text
     bot.reply_to(message, "تم تحديث رسالة البدء بنجاح.", parse_mode="Markdown")
 
 def execute_broadcast(message):
     if message.from_user.id != ADMIN_CHAT_ID and message.from_user.username != "TWEBii":
         return
-    
     sent_count = 0
     fail_count = 0
     status_msg = bot.reply_to(message, "جاري إرسال الإذاعة...")
-    
     for uid in users_db:
         try:
             bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
             sent_count += 1
         except Exception:
             fail_count += 1
-
     bot.edit_message_text(
-        f"تمت الإذاعة بنجاح.\n\n"
-        f"📤 تم الإرسال إلى: {sent_count} مستخدم\n"
-        f"❌ فشل الإرسال إلى: {fail_count} مستخدم",
-        chat_id=message.chat.id,
-        message_id=status_msg.message_id,
-        parse_mode="Markdown"
+        f"تمت الإذاعة بنجاح.\n\n📤 تم الإرسال إلى: {sent_count} مستخدم\n❌ فشل الإرسال إلى: {fail_count} مستخدم",
+        chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
     )
 
 @bot.message_handler(content_types=['photo'])
@@ -189,22 +171,16 @@ def handle_photos(message):
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
     if message.chat.type == "private":
-        responses = [
-            "ملصق جميل.",
-            "تسلم على الملصق.",
-            "حلوة هاي الحركة."
-        ]
+        responses = ["ملصق جميل.", "تسلم على الملصق.", "حلوة هاي الحركة."]
         bot.reply_to(message, random.choice(responses))
         if cached_stickers and random.random() < 0.5:
             bot.send_sticker(message.chat.id, random.choice(cached_stickers))
 
-# معالجة رسائل تليجرام الأعمال (Secretary Mode)
 @bot.business_message_handler(func=lambda message: True)
 def handle_business_message(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-
     user_message = message.text
     if not user_message:
         return
@@ -218,7 +194,6 @@ def handle_business_message(message):
 
     try:
         total_messages_sent += 1
-        
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
@@ -238,7 +213,6 @@ def handle_business_message(message):
             model="llama-3.3-70b-versatile",
             temperature=0.7,
         )
-        
         ai_response = chat_completion.choices[0].message.content
         
         sticker_to_send = None
@@ -254,35 +228,27 @@ def handle_business_message(message):
                 print(f"خطأ في استخراج الملصق: {ex}")
 
         sent_msg = bot.send_message(
-            chat_id=message.chat.id, 
-            text=ai_response if ai_response else "أهلاً بك.", 
-            parse_mode="Markdown",
-            reply_to_message_id=message.message_id
+            chat_id=message.chat.id, text=ai_response if ai_response else "أهلاً بك.", 
+            parse_mode="Markdown", reply_to_message_id=message.message_id
         )
-        
         if sticker_to_send:
             bot.send_sticker(message.chat.id, sticker_to_send, reply_to_message_id=sent_msg.message_id)
-
     except Exception as e:
         print(f"خطأ في معالجة رسالة الأعمال: {e}")
 
-# معالجة النصوص والذكاء الاصطناعي (للخاص والمجموعات)
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-
     user_message = message.text
     chat_type = message.chat.type
 
     if chat_type in ["group", "supergroup"]:
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         text_lower = user_message.lower()
-        
         mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
         mentioned_dev = "احمد" in text_lower or "twebii" in text_lower
-
         if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
             return
 
@@ -295,9 +261,7 @@ def chat_with_ai(message):
 
     try:
         sent_msg = bot.reply_to(message, "جاري الرد...")
-        
         total_messages_sent += 1
-        
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
@@ -313,19 +277,12 @@ def chat_with_ai(message):
 
         chat_completion = client.chat.completions.create(
             messages=[
-                {
-                    "role": "system",
-                    "content": system_content,
-                },
-                {
-                    "role": "user",
-                    "content": user_message,
-                }
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_message}
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.7,
         )
-        
         ai_response = chat_completion.choices[0].message.content
         
         sticker_to_send = None
@@ -341,14 +298,11 @@ def chat_with_ai(message):
                 print(f"خطأ في استخراج الملصق: {ex}")
 
         bot.edit_message_text(ai_response if ai_response else "تفضل.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
-        
         if sticker_to_send:
             bot.send_sticker(message.chat.id, sticker_to_send)
-
     except Exception as e:
         bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
 
-# مسارات سيرفر Flask لاستقبال الـ Webhook
 @server.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
 def redirect_message():
     json_string = request.get_data().decode("utf-8")
@@ -357,13 +311,23 @@ def redirect_message():
     return "!", 200
 
 @server.route("/")
-def webhook():
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}", allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection'])
+def index():
     return "Bot is running with Webhook!", 200
 
 if __name__ == "__main__":
-    print("Bot is starting with Webhook...")
+    print("Bot is starting and setting up Webhook automatically...")
     load_sticker_packs()
+    
+    # ربط الوبهوك تلقائياً عند بدء التشغيل
+    try:
+        bot.remove_webhook()
+        bot.set_webhook(
+            url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}", 
+            allowed_updates=['message', 'edited_message', 'callback_query', 'business_message', 'business_connection']
+        )
+        print("Webhook set successfully!")
+    except Exception as e:
+        print(f"Failed to set webhook: {e}")
+        
     port = int(os.environ.get("PORT", 8080))
     server.run(host="0.0.0.0", port=port)
