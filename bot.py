@@ -1,30 +1,36 @@
 import os
+import re
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, render_template_string, request
+from aiohttp import web
 
 # بيانات تطبيق تيليجرام الخاص بك
 API_ID = 20503432
 API_HASH = "26227bf46cdb65744fb4c6572b82bc01"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
 
-app = Flask(__name__)
+# ذاكرة مؤقتة لحفظ مسارات الملفات
+FILE_CACHE = {}
 
-bot = Client(
-    "tweb_stream_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=TELEGRAM_TOKEN,
+# إعداد عميل بايروجرام
+app_bot = Client(
+    "tweb_stream_bot", 
+    api_id=API_ID, 
+    api_hash=API_HASH, 
+    bot_token=TELEGRAM_TOKEN, 
     in_memory=True
 )
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+routes = web.RouteTableDef()
+
+# واجهة المستخدم (HTML)
+HTML_PAGE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TWEB - مشاهدة المحاضرة</title>
+    <title>TWEB Cloud Stream</title>
     <style>
         body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 30px; margin: 0; }
         h2 { color: #38bdf8; margin-bottom: 20px; font-size: 28px; font-weight: bold; }
@@ -38,102 +44,117 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <h2>TWEB Cloud Stream</h2>
     <div class="video-container">
-        <video controls autoplay>
-            <source src="{{ direct_url }}" type="video/mp4">
-            متصفحك لا يدعم تشغيل الفيديو مباشرة.
+        <video controls playsinline>
+            <source src="{stream_url}" type="video/mp4">
+            متصفحك لا يدعم تشغيل الفيديو.
         </video>
     </div>
     <div>
-        <a class="btn" href="{{ direct_url }}" target="_blank">تحميل المحاضرة برابط مباشر 📥</a>
+        <a class="btn" href="{stream_url}" download>تحميل المحاضرة برابط مباشر 📥</a>
     </div>
     <div class="footer-tag">@TWEBiii</div>
 </body>
 </html>"""
 
-# قاموس مؤقت لتخزين روابط البث السحابية
-STREAM_CACHE = {}
+@routes.get('/watch/{file_id}')
+async def watch(request):
+    file_id = request.match_info['file_id']
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", request.host)
+    base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
+    stream_url = f"{base_url}/stream/{file_id}"
+    return web.Response(text=HTML_PAGE.replace("{stream_url}", stream_url), content_type='text/html')
 
-@app.route('/watch/<file_id>')
-def watch_video(file_id):
-    direct_url = STREAM_CACHE.get(file_id)
-    if not direct_url:
-        return "عذراً، انتهت صلاحية الجلسة أو الملف غير موجود.", 404
-    return render_template_string(HTML_TEMPLATE, direct_url=direct_url)
+@routes.get('/stream/{file_id}')
+async def stream(request):
+    file_id = request.match_info['file_id']
+    message = FILE_CACHE.get(file_id)
+    
+    if not message:
+        return web.Response(status=404, text="عذراً، الملف غير موجود أو انتهت الجلسة. يرجى إرسال الفيديو للبوت مجدداً.")
 
-@bot.on_message(filters.video | filters.document)
-async def handle_video(client, message):
-    sent_msg = await message.reply_text("⏳ جاري توليد رابط البث السحابي السريع للمحاضرة...")
+    media = message.video or message.document
+    file_size = media.file_size
+
+    offset = 0
+    limit = file_size
+    range_header = request.headers.get('Range', '')
+
+    # خوارزمية حساب أجزاء الفيديو بدقة لتشغيله في المتصفح بدون تقطيع
+    if range_header:
+        match = re.search(r'bytes=(\d+)-(\d*)', range_header)
+        if match:
+            offset = int(match.group(1))
+            if match.group(2):
+                limit = int(match.group(2)) + 1 - offset
+            else:
+                limit = file_size - offset
+
+    headers = {
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Content-Range': f'bytes {offset}-{offset + limit - 1}/{file_size}',
+        'Content-Length': str(limit),
+    }
+
+    response = web.StreamResponse(status=206 if range_header else 200, headers=headers)
+    await response.prepare(request)
+
+    try:
+        # استخراج الفيديو كأجزاء من سيرفر تيليجرام مباشرة
+        async for chunk in app_bot.stream_media(message, offset=offset, limit=limit):
+            await response.write(chunk)
+    except asyncio.CancelledError:
+        pass # المستخدم أغلق الفيديو
+    except Exception as e:
+        print(f"Stream Error: {e}")
+
+    return response
+
+@app_bot.on_message(filters.video | filters.document)
+async def handle_media(client, message):
+    msg = await message.reply_text("⏳ جاري إنشاء خادم البث المباشر للمحاضرة...")
     try:
         media = message.video or message.document
-        file_id = media.file_id
+        file_id = media.file_unique_id
         
-        # استخراج رابط البث المباشر السحابي من جلسة بايروجرام (بدون أي تحميل على السيرفر)
-        file_link = await client.get_media_dl(message)
+        # حفظ كائن الرسالة لاستخدامه في البث
+        FILE_CACHE[file_id] = message
         
-        # إذا لم يتوفر رابط مباشر، نعتمد على استخراج مسار تيليجرام الرسمي السحابي
-        if not file_link:
-            file_info = await client.get_file(file_id)
-            file_link = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}"
-            
-        STREAM_CACHE[file_id] = file_link
-        
-        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
         base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
         
         watch_link = f"{base_url}/watch/{file_id}"
         
-        response_text = (
-            "✅ تمت معالجة المحاضرة الضخمة بنجاح تام وسحابياً!\n\n"
-            "• بدون استهلاك ذاكرة السيرفر ✓\n"
-            "• مشاهدة وتحميل فوري بدون انتظار ✓"
-        )
-        
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]
-        ])
-        
-        await sent_msg.edit_text(response_text, reply_markup=markup)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
+        await msg.edit_text("✅ تم تجهيز رابط البث بنجاح!\n\nيمكنك الآن المشاهدة بدون تقطيع:", reply_markup=markup)
     except Exception as e:
-        print(f"Error: {e}")
-        # كود احتياطي مباشر لتوليد الرابط عبر معرف الملف في حال حدوث أي استثناء
-        try:
-            media = message.video or message.document
-            fallback_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/documents"
-            STREAM_CACHE[media.file_id] = fallback_url
-            railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "your-app.up.railway.app")
-            base_url = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
-            watch_link = f"{base_url}/watch/{media.file_id}"
-            markup = InlineKeyboardMarkup([[InlineKeyboardButton("📺 مشاهدة وتحميل المحاضرة", url=watch_link)]])
-            await sent_msg.edit_text("✅ تم تجهيز رابط المحاضرة بنجاح:", reply_markup=markup)
-        except Exception as err:
-            await sent_msg.edit_text(f"⚠️ عذراً، حدث خطأ في المعالجة: {str(err)}")
+        await msg.edit_text(f"⚠️ حدث خطأ: {e}")
 
-@bot.on_message(filters.command("start"))
-async def start_command(client, message):
-    user = message.from_user
-    try:
-        if ADMIN_ID:
-            await client.send_message(
-                int(ADMIN_ID), 
-                f"🚨 دخل شخص جديد إلى البوت:\n👤 الاسم: {user.first_name}\n🔗 المعرف: @{user.username or 'بدون'}"
-            )
-    except Exception as e:
-        print(f"Admin notice error: {e}")
+@app_bot.on_message(filters.command("start"))
+async def start_cmd(client, message):
+    await message.reply_text("أهلاً بك في بوت TWEB السحابي المطور! 👋\n\nأرسل أي فيديو أو محاضرة وسأقوم ببثها مباشرة.")
 
-    welcome_text = (
-        "أهلاً بك يا أحمد في بوت TWEB السحابي الخارق! 👋\n\n"
-        "📹 أرسل أي محاضرة طويلة مهما بلغ حجمها، وسأقوم بتجهيز رابط البث والسحابي الفوري لها بدون أي انتظار.\n\n"
-        "👨‍💻 مبرمج البوت: @TWEBII"
-    )
-    await message.reply_text(welcome_text)
+async def main():
+    # تشغيل بوت تيليجرام
+    await app_bot.start()
+    print("Bot is running...")
+    
+    # تشغيل سيرفر الويب غير المتزامن
+    app = web.Application()
+    app.add_routes(routes)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # تحديد المنفذ الخاص بـ Railway
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    print(f"Web server is running on port {port}...")
+    
+    # إبقاء السيرفر قيد التشغيل
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    import threading
-    
-    port = int(os.environ.get("PORT", 5000))
-    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, use_reloader=False))
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    print("البوت يعمل بنظام البث السحابي المباشر...")
-    bot.run()
+    asyncio.run(main())
