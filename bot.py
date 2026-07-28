@@ -5,14 +5,15 @@ from flask import Flask, render_template_string, send_from_directory, request
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")  # تم وضع الايدي الخاص بك
 
+# تعريف الـ app الخاص بـ Flask (هنا كان الخلل الأساسي)
+app = Flask(__name__)
+
+ADMIN_ID = os.getenv("ADMIN_ID", "8411608232")
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
