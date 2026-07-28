@@ -47,4 +47,6 @@ def chat_with_ai(message):
 # تشغيل البوت
 if __name__ == "__main__":
     print("Bot is running...")
+    bot.remove_webhook()  # حذف أي Webhook قديم عالق لمنع خطأ 409
     bot.infinity_polling()
+ 
