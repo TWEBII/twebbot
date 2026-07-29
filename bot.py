@@ -5,7 +5,6 @@ import telebot
 from telebot import types
 from datetime import datetime, timedelta
 
-# إعدادات المفاتيح والروابط
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
@@ -36,7 +35,7 @@ def chat_with_ai(message):
     user_message = message.text
     chat_id = message.chat.id
     
-    print(f"تم استلام رسالة نصية من أحمد: {user_message}")
+    print(f"✅ تم استلام رسالة نصية من أحمد: {user_message}")
 
     try:
         processing_msg = bot.send_message(chat_id, "جاري الرد...")
@@ -59,12 +58,13 @@ def chat_with_ai(message):
         bot.edit_message_text(ai_response, chat_id=chat_id, message_id=processing_msg.message_id, parse_mode="Markdown")
 
     except Exception as e:
-        print(f"حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {e}")
+        print(f"❌ خطأ في الرد: {e}")
         try:
             bot.send_message(chat_id, f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}")
         except:
             pass
 
+# مطابقة مسار الـ Flask تماماً مع التوكن لضمان التقاط الطلبات القادمة من تليجرام
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -72,23 +72,20 @@ def webhook():
         update = types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return '', 200
-    else:
-        return 'Forbidden', 403
+    return '', 403
 
 @server.route("/")
 def index():
-    return "TWEB Bot Webhook Server is active!", 200
+    return "TWEB Bot Server is active!", 200
 
-def setup_webhook():
+if __name__ == "__main__":
     try:
         bot.remove_webhook()
         webhook_url = f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}"
         bot.set_webhook(url=webhook_url)
-        print(f"تم تحديث وإلغاء الـ Webhook القديم وربطه بنجاح مع: {webhook_url}")
+        print(f"🔗 تم ربط الـ Webhook بنجاح مع: {webhook_url}")
     except Exception as e:
-        print(f"خطأ في تعيين الـ Webhook: {e}")
+        print(f"⚠️ خطأ في تعيين الـ Webhook: {e}")
 
-if __name__ == "__main__":
-    setup_webhook()
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
