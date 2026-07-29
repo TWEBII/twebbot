@@ -39,7 +39,7 @@ total_messages_sent = 0
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
     "🛠 ما يمكنني فعله لك الآن:\n"
-    "• ترجمة الصور مرئياً بدقة متناهية مع الحفاظ على التصميم الأصلي\n"
+    "• ترجمة الصور مرئياً بدقة وتركيز على النصوص الحقيقية فقط دون المساس بالرسوم\n"
     "• ترجمة ملفات الـ PDF بالكامل بنفس التنسيق والهيكل الهندسي للملف\n\n"
     "أرسل صورتك أو ملفك مباشرة لتجربة النظام المحدث!"
 )
@@ -87,7 +87,7 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """معالجة الأسطر والكتل النصية بأمان تام ودون أخطاء في المفاتيح"""
+    """ترجمة النصوص الحقيقية فقط وتجاهل الأسهم والخطوط والرموز الرسومية تماماً"""
     font_available = ensure_arabic_font()
     
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -103,9 +103,13 @@ def translate_image_core(image_bytes):
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
+        
+        # فلتر صارم جداً: تجاهل أي شيء ليس كلمة إنجليزية حقيقية (تجاهل الرموز، الشرطات، والأسهم)
         if not text or len(text) < 2:
             continue
-        # الاعتماد على block_num و line_num فقط لضمان التوافق المطلق
+        if not any(c.isalpha() for c in text):
+            continue
+            
         line_key = f"{data['block_num'][i]}_{data['line_num'][i]}"
         if line_key not in lines:
             lines[line_key] = []
@@ -150,7 +154,7 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح النص القديم بلون الخلفية
+        # مسح النص الإنجليزي القديم بدقة
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         try:
@@ -314,7 +318,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Stable Fix running smoothly!", 200
+    return "Tweby Smart Text Filter running smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
