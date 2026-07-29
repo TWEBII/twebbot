@@ -68,8 +68,9 @@ def chat_with_ai(message):
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = types.Update.de_json(json_string)
+        json_data = request.get_json()
+        print(f"📥 البيانات الواردة من تيليجرام: {json_data}")
+        update = types.Update.de_json(json_data)
         bot.process_new_updates([update])
         return '', 200
     return 'Forbidden', 403
