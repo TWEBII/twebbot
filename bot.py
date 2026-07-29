@@ -8,7 +8,7 @@ from flask import Flask, request
 from groq import Groq
 import pypdf
 import pytesseract
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont
 import fitz  # PyMuPDF
 import telebot
 from telebot import types
@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 تم تفعيل وضع التكبير وتحسين دقة محرك الكشف (Tesseract PSM 6) لالتقاط كافة النصوص الصغيرة والمتداخلة.\n"
+    "🛠 تم العودة للتقسيم السطري الطبيعي (Line-by-Line) لمنع تمدد النصوص وجعلها مرتبة ومنفصلة.\n"
     "أرسل صورتك الآن!"
 )
 
@@ -77,22 +77,20 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 def translate_image_core(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    # تكبير الصورة بنسبة 2x لرفع دقة قراءة الكلمات الصغيرة جداً بواسطة Tesseract
+    # تكبير الصورة بنسبة 2x لرفع دقة القراءة
     w, h = img.size
     img_resized = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
-    
     draw = ImageDraw.Draw(img)
     
     try:
-        # استخدام إعدادات مخصصة لضمان قراءة الأسطر المتداخلة بدقة عالية
-        custom_config = r'--psm 6'
-        data = pytesseract.image_to_data(img_resized, output_type=pytesseract.Output.DICT, config=custom_config)
+        data = pytesseract.image_to_data(img_resized, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
-    blocks = {}
+    lines = {}
     
+    # التجميع السطري الدقيق (بناءً على رقم السطر والكتلة معاً لضمان عدم الدمج الخاطئ)
     for i in range(n_boxes):
         text = data['text'][i].strip()
         if not text:
@@ -100,28 +98,31 @@ def translate_image_core(image_bytes):
         if not any(c.isalpha() for c in text):
             continue
             
-        block_key = str(data['block_num'][i])
-        if block_key not in blocks:
-            blocks[block_key] = []
-        blocks[block_key].append(i)
+        line_key = f"{data['block_num'][i]}_{data['par_num'][i]}_{data['line_num'][i]}"
+        if line_key not in lines:
+            lines[line_key] = []
+        lines[line_key].append(i)
         
-    for block_key, indices in blocks.items():
-        block_words = [data['text'][idx] for idx in indices]
-        full_block_text = " ".join(block_words).strip()
+    for line_key, indices in lines.items():
+        line_words = [data['text'][idx] for idx in indices]
+        full_line_text = " ".join(line_words).strip()
         
-        if not full_block_text or len(full_block_text) < 2:
+        if not full_line_text or len(full_line_text) < 2:
             continue
             
-        # إعادة الإحداثيات للحجم الأصلي للصورة (قسمة على 2)
         lefts = [data['left'][idx] // 2 for idx in indices]
         tops = [data['top'][idx] // 2 for idx in indices]
         rights = [(data['left'][idx] + data['width'][idx]) // 2 for idx in indices]
         bottoms = [(data['top'][idx] + data['height'][idx]) // 2 for idx in indices]
         
-        x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
-        x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
+        x1, y1 = max(0, min(lefts) - 4), max(0, min(tops) - 3)
+        x2, y2 = min(img.width, max(rights) + 4), min(img.height, max(bottoms) + 3)
         
-        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_block_text}"
+        # تجنب المربعات الصغيرة جداً أو الوهمية
+        if (x2 - x1) < 10 or (y2 - y1) < 8:
+            continue
+            
+        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -148,7 +149,7 @@ def translate_image_core(image_bytes):
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         box_h = y2 - y1
-        font_size = min(18, max(11, int(box_h * 0.65)))
+        font_size = min(16, max(11, int(box_h * 0.70)))
         font = get_working_font(font_size)
             
         try:
@@ -230,7 +231,7 @@ def handle_documents(message):
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         
         with open(output_pdf_name, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بالكامل وبدقة فائقة!")
+            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح وبأسطر مرتبطة ومنفصلة بدقة!")
             
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         doc.close()
@@ -254,7 +255,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح والتقاط كافة النصوص بدقة كاملة!",
+            caption="✅ تمت الترجمة بنجاح وبأحجام وأسطر دقيقة تماماً!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -291,7 +292,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby High-Res PSM6 Running Smoothly!", 200
+    return "Tweby Clean Line-by-Line Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
