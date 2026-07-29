@@ -1,58 +1,16 @@
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-
-def main_menu(is_admin=False):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-
-    kb.row(
-        KeyboardButton("🤖 الدردشة الذكية")
-    )
-
-    kb.row(
-        KeyboardButton("⚙️ الإعدادات"),
-        KeyboardButton("📜 سجل المحادثات")
-    )
-
-    kb.row(
-        KeyboardButton("ℹ️ المساعدة"),
-        KeyboardButton("👨‍💻 المطور")
-    )
-
-    if is_admin:
-        kb.row(
-            KeyboardButton("👑 لوحة التحكم")
-        )
-
-    return kb
-
-
-def admin_menu():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-
-    kb.row(
-        KeyboardButton("📢 إذاعة")
-    )
-
-    kb.row(
-        KeyboardButton("📝 تغيير رسالة Start")
-    )
-
-    kb.row(
-        KeyboardButton("📊 الإحصائيات"),
-        KeyboardButton("👥 المستخدمون")
-    )
-
-    kb.row(
-        KeyboardButton("🚫 حظر مستخدم"),
-        KeyboardButton("✅ إلغاء الحظر")
-    )
-
-    kb.row(
-        KeyboardButton("📨 إرسال رسالة")
-    )
-
-    kb.row(
-        KeyboardButton("⬅️ رجوع")
-    )
-
-    return kb
+def developer_panel_markup():
+    """توليد لوحة التحكم الخاصة بالمطور (أحمد)"""
+    # نحدد أن الأزرار تترتب عمودياً (زر واحد في كل صف)
+    markup = InlineKeyboardMarkup(row_width=1)
+    
+    # إنشاء الأزرار
+    btn_stats = InlineKeyboardButton("📊 الإحصائيات", callback_data="panel_stats")
+    btn_broadcast = InlineKeyboardButton("📢 إذاعة", callback_data="panel_broadcast")
+    btn_start = InlineKeyboardButton("📝 تعديل رسالة start", callback_data="panel_edit_start")
+    
+    # إضافة الأزرار للوحة
+    markup.add(btn_stats, btn_broadcast, btn_start)
+    
+    return markup
