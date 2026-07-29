@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🚀 تم ضبط الصناديق لتكون مستقلة تماماً بدون أي تداخلات عشوائية!\n"
+    "🚀 تم تحديث نظام تجميع الأسطر بـ psm 6 لضمان ترجمة الفقرات والخطوط بشكل سليم ومنظم تماماً!\n"
     "أرسل صورتك الآن!"
 )
 
@@ -76,20 +76,20 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 def translate_image_core(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    
     w, h = img.size
     img_processed = img.resize((w * 3, h * 3), Image.Resampling.LANCZOS)
     img_processed = ImageOps.autocontrast(img_processed)
     
     draw = ImageDraw.Draw(img)
     
-    config = r'--oem 3 --psm 11'
+    config = r'--oem 3 --psm 6'
     try:
         data = pytesseract.image_to_data(img_processed, config=config, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
+    lines_dict = {}
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
@@ -99,19 +99,40 @@ def translate_image_core(image_bytes):
             conf = int(data['conf'][i])
         except:
             conf = 50
-            
-        if conf < 25:
+        if conf < 20:
             continue
             
-        x1 = data['left'][i] // 3
-        y1 = data['top'][i] // 3
-        x2 = x1 + (data['width'][i] // 3)
-        y2 = y1 + (data['height'][i] // 3)
+        b_id = data['block_num'][i]
+        p_id = data['par_num'][i]
+        l_id = data['line_num'][i]
+        key = (b_id, p_id, l_id)
         
-        if (x2 - x1) < 8 or (y2 - y1) < 6:
+        x = data['left'][i] // 3
+        y = data['top'][i] // 3
+        bw = data['width'][i] // 3
+        bh = data['height'][i] // 3
+        
+        if key not in lines_dict:
+            lines_dict[key] = {'x1': x, 'y1': y, 'x2': x + bw, 'y2': y + bh, 'words': []}
+        else:
+            item = lines_dict[key]
+            item['x1'] = min(item['x1'], x)
+            item['y1'] = min(item['y1'], y)
+            item['x2'] = max(item['x2'], x + bw)
+            item['y2'] = max(item['y2'], y + bh)
+            
+        lines_dict[key]['words'].append(text)
+        
+    for key, line_info in lines_dict.items():
+        full_line_text = " ".join(line_info['words']).strip()
+        if len(full_line_text) < 3:
             continue
             
-        prompt = f"Translate the following English word/phrase into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{text}"
+        x1, y1, x2, y2 = line_info['x1'], line_info['y1'], line_info['x2'], line_info['y2']
+        if (x2 - x1) < 15 or (y2 - y1) < 8:
+            continue
+            
+        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -127,24 +148,21 @@ def translate_image_core(image_bytes):
             
         box_region = img.crop((x1, y1, x2, y2))
         img_np = np.array(box_region)
-        if img_np.size > 0:
-            bg_color = tuple(map(int, np.median(img_np, axis=(0, 1))))
-        else:
-            bg_color = (20, 20, 20)
-            
+        bg_color = tuple(map(int, np.median(img_np, axis=(0, 1)))) if img_np.size > 0 else (20, 20, 20)
+        
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         box_h = y2 - y1
-        font_size = min(14, max(9, int(box_h * 0.70)))
+        font_size = min(16, max(10, int(box_h * 0.65)))
         font = get_working_font(font_size)
-            
+        
         try:
             tw, th = draw.textbbox((0, 0), arabic_text, font=font)[2:]
         except:
-            tw, th = len(arabic_text) * 4, font_size
+            tw, th = len(arabic_text) * 5, font_size
             
-        tx = x1 + max(1, (x2 - x1 - tw) // 2)
-        ty = y1 + max(1, (y2 - y1 - th) // 2)
+        tx = x1 + max(2, (x2 - x1 - tw) // 2)
+        ty = y1 + max(2, (y2 - y1 - th) // 2)
         
         draw.text((tx, ty), arabic_text, fill=(255, 255, 255), font=font)
         
@@ -238,7 +256,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح وبصناديق منفصلة بدقة!",
+            caption="✅ تمت الترجمة بنجاح وبترتيب أسطر دقيق ومنظم!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -275,7 +293,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Clean Boxes Running Smoothly!", 200
+    return "Tweby Perfect Line-based Layout Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
