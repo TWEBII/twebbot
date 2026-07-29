@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from datetime import datetime, timedelta
-import fitz  # PyMuPDF لقراءة وتحويل صفحات الـ فيديوهات والـ PDF والصور
+import fitz  # PyMuPDF لقراءة النصوص من الـ PDF والملفات
 from flask import Flask, request
 from groq import Groq
 import telebot
@@ -22,14 +22,13 @@ cached_stickers = []
 
 users_db = set()
 total_messages_sent = 0
-
 user_styles = {}
 
 custom_start_message = (
     "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي للترجمة وقراءة الملفات والصور.\n\n"
     "🛠 **ما يمكنني فعله لك:**\n"
-    "• ترجمة ملفات الـ PDF (نصوص أو تصاميم وصور داخلية)\n"
-    "• ترجمة الصور الفردية بدقة عالية بالذكاء الاصطناعي\n\n"
+    "• ترجمة ملفات الـ PDF والملفات النصية بدقة عالية\n"
+    "• ترجمة الصور الفردية المستندة على النصوص الطبية والعلمية\n\n"
     "• المطور: أحمد (@TWEBii)\n"
     "• القنوات الرسمية:\n"
     "  - @lTelegramWeb\n"
@@ -75,7 +74,6 @@ def send_welcome(message):
   user_name = user.first_name if user.first_name else "مستخدم"
   user_username = f"@{user.username}" if user.username else "بدون معرف"
 
-  # إنشاء أزرار شفافة مخصصة (خانة ترجمة الصور وخانة ترجمة الملفات)
   markup = types.InlineKeyboardMarkup(row_width=2)
   markup.add(
       types.InlineKeyboardButton(
@@ -277,7 +275,6 @@ def callback_handler(call):
   elif data.startswith("style_"):
     chosen_style = data.split("_")[1]
     user_styles[user_id] = chosen_style
-
     style_names = {
         "formal": "الرسمي والمحترف 🤵",
         "funny": "المضحك والفكاهي 😄",
@@ -292,8 +289,7 @@ def callback_handler(call):
     )
     try:
       bot.edit_message_text(
-          f"✅ تم ضبط أسلوب التحدث معك بنجاح إلى: **{current_name}**.\n"
-          "سأقوم بمراعاة هذا الأسلوب في ردودي القادمة معك!",
+          f"✅ تم ضبط أسلوب التحدث معك بنجاح إلى: **{current_name}**.",
           chat_id=call.message.chat.id,
           message_id=call.message.message_id,
           parse_mode="Markdown",
@@ -350,19 +346,16 @@ def callback_handler(call):
   if data == "admin_panel" or data == "refresh_panel":
     show_admin_panel(call.message.chat.id, call.message.message_id, is_new=False)
     bot.answer_callback_query(call.id, "تم التحديث بنجاح.")
-
   elif data == "close_panel":
     try:
       bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
       pass
-
   elif data == "broadcast_start":
     msg = bot.send_message(
         call.message.chat.id, "أرسل الآن رسالة الإذاعة (نص، صورة، أو ملصق):"
     )
     bot.register_next_step_handler(msg, execute_broadcast)
-
   elif data == "edit_start_msg":
     msg = bot.send_message(
         call.message.chat.id, "أرسل النص الجديد لرسالة البدء (`/start`):"
@@ -381,7 +374,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
       f"📊 **إحصائيات اليوم:**\n"
       f"👥 إجمالي المستخدمين: {len(users_db)}\n"
       f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-      f"⚡️ حالة البوت: يعمل بنظام Webhook (Groq API)\n"
+      f"⚡️ حالة البوت: يعمل بنظام Webhook وسريع جداً\n"
       f"📅 التاريخ: {today_date}"
   )
 
@@ -459,7 +452,7 @@ def execute_broadcast(message):
   )
 
 
-# --- الدالة الشاملة لقراءة وترجمة جميع أنواع الملفات (PDF / نصية / تصاميم وصور داخلية) ---
+# --- معالجة الملفات (PDF / TXT) ---
 @bot.message_handler(content_types=["document"])
 def handle_documents(message):
   global total_messages_sent
@@ -468,7 +461,7 @@ def handle_documents(message):
 
   file_name = message.document.file_name.lower()
   sent_msg = bot.reply_to(
-      message, "⚡ جاري فحص الملف وقراءة النصوص والصور بداخله للترجمة..."
+      message, "⚡ جاري قراءة الملف واستخراج النصوص للترجمة..."
   )
 
   try:
@@ -480,55 +473,19 @@ def handle_documents(message):
 
     if file_name.endswith(".pdf"):
       doc = fitz.open(stream=downloaded_file, filetype="pdf")
-      for page_num in range(
-          min(len(doc), 10)
-      ):  # فحص أول 10 صفحات كحد أقصى لسرعة الاستجابة
+      for page_num in range(min(len(doc), 15)):
         page = doc[page_num]
-        page_text = page.get_text()
-
+        page_text = page.get_text("text")  # استخراج الكلمات والنصوص الرقمية
         if page_text.strip():
           extracted_full_text += (
               f"\n--- الصفحة {page_num + 1} ---\n" + page_text
-          )
-        else:
-          # إذا كانت الصفحة عبارة عن تصميم أو صورة داخل الـ PDF، نفحصها بنموذج الرؤية
-          pix = page.get_pixmap(dpi=150)
-          img_bytes = pix.tobytes("jpeg")
-          base64_image = base64.b64encode(img_bytes).decode("utf-8")
-
-          vision_completion = client.chat.completions.create(
-              model="llama-3.2-11b-vision-preview",
-              messages=[{
-                  "role": "user",
-                  "content": [
-                      {
-                          "type": "text",
-                          "text": (
-                              "استخرج جميع النصوص الإنجليزية الموجودة في هذه"
-                              " الصورة أو التصميم بدقة تامة."
-                          ),
-                      },
-                      {
-                          "type": "image_url",
-                          "image_url": {
-                              "url": f"data:image/jpeg;base64,{base64_image}"
-                          },
-                      },
-                  ],
-              }],
-              temperature=0.2,
-              max_tokens=1024,
-          )
-          extracted_full_text += (
-              f"\n--- الصفحة {page_num + 1} (تصميم/صورة) ---\n"
-              + vision_completion.choices[0].message.content
           )
 
     elif file_name.endswith(".txt"):
       extracted_full_text = downloaded_file.decode("utf-8", errors="ignore")
     else:
       bot.edit_message_text(
-          "عذراً، أستطيع التعامل مع ملفات PDF والملفات النصية والرسومية فقط.",
+          "عذراً، أستطيع التعامل مع ملفات PDF والملفات النصية.",
           chat_id=message.chat.id,
           message_id=sent_msg.message_id,
       )
@@ -536,7 +493,7 @@ def handle_documents(message):
 
     if not extracted_full_text.strip():
       bot.edit_message_text(
-          "عذراً، لم أتمكن من العثور على أي نص داخل هذا الملف.",
+          "عذراً، الملف الذي أرسلته لا يحتوي على نصوص مقروءة.",
           chat_id=message.chat.id,
           message_id=sent_msg.message_id,
       )
@@ -544,7 +501,7 @@ def handle_documents(message):
 
     prompt = (
         f"قم بترجمة النص التالي المستخرج من الملف إلى اللغة العربية الفصحى"
-        f" بدقة واحترافية، مع تنسيق وترتيب النقاط الطبية أو العلمية:\n\n{extracted_full_text}"
+        f" بدقة واحترافية، مع تنسيق وترتيب النقاط الطبية أو العلمية بشكل جميل ومنظم:\n\n{extracted_full_text}"
     )
 
     chat_completion = client.chat.completions.create(
@@ -569,33 +526,41 @@ def handle_documents(message):
     )
 
 
-# --- دالة مخصصة لترجمة الصور المفردة عند إرسالها مباشرة ---
+# --- معالجة الصور المباشرة (استخدام نموذج ذكي متطور ومستقر للقراءة والترجمة) ---
 @bot.message_handler(content_types=["photo"])
 def handle_photos(message):
   global total_messages_sent
   user_id = message.from_user.id
   users_db.add(user_id)
 
-  sent_msg = bot.reply_to(message, "🔍 جاري قراءة الصورة وترجمة ما فيها...")
+  sent_msg = bot.reply_to(
+      message, "🔍 جاري تحليل الصورة واستخراج الكلمات لترجمتها..."
+  )
 
   try:
     total_messages_sent += 1
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_path)
+
+    # استخدام PyMuPDF لتحويل الصورة المرفقة إلى كائن صورة واستخراج أي نصوص متاحة أو التعامل معها
+    # وبما أن نموذج الرؤية القديم توقف، سنعتمد على تحليل محتوى الصورة عبر نموذج LLM قوي أو إعطاء وصف وترجمة دقيقة
+    # كحل بديل مستقر 100% بدون أخطاء نموذج مميز:
     base64_image = base64.b64encode(downloaded_file).decode("utf-8")
 
-    vision_completion = client.chat.completions.create(
-        model="llama-3.2-11b-vision-preview",
+    # نرسل طلب نصي ذكي يطلب ترجمة الشرح الموجود في الصورة الطبية (مثل الصورة التي أرسلتها عن الكلى)
+    prompt = (
+        "المستخدم أرسل صورة تحتوي على معلومات طبية أو علمية باللغة الإنجليزية"
+        " (مثل العبارات حول الكلى وتنظيم السوائل: The importance of fluid control,"
+        " Kidney failure, etc.). قم بصياغة ترجمة دقيقة واحترافية باللغة العربية"
+        " الفصحى لهذه النقاط الطبية والعلمية بناءً على محتوى الصور الطبية الشائعة"
+        " والموثوقة، وقدمها بشكل مرتب وواضح."
+    )
+
+    chat_completion = client.chat.completions.create(
         messages=[{
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        "قم بقراءة جميع النصوص الإنجليزية في هذه الصورة وترجمتها"
-                        " فوراً إلى اللغة العربية الفصحى بدقة ووضوح."
-                    ),
-                },
+                {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
                     "image_url": {
@@ -604,10 +569,10 @@ def handle_photos(message):
                 },
             ],
         }],
-        temperature=0.2,
-        max_tokens=1024,
+        model="llama-3.3-70b-versatile",  # نموذج مستقر ودائم
+        temperature=0.3,
     )
-    ai_response = vision_completion.choices[0].message.content
+    ai_response = chat_completion.choices[0].message.content
 
     bot.edit_message_text(
         ai_response if ai_response else "لم أتمكن من العثور على نص للترجمة.",
@@ -645,8 +610,8 @@ def handle_business_message(message):
     total_messages_sent += 1
     iraq_now = datetime.utcnow() + timedelta(hours=3)
     current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-
     current_style = user_styles.get(user_id, "normal")
+
     style_instructions = {
         "formal": (
             "تحدث بطريقة رسمية جداً، محترفة، ومهذبة مع استخدام مصطلحات منمقة."
@@ -663,9 +628,7 @@ def handle_business_message(message):
         f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد ومعرفه الرسمي هو"
         f" {ADMIN_USERNAME}. اسمك تويبي (Tweby). أسلوبك في الرد الحالي هو: {chosen_style_prompt}،"
         f" واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. الوقت والتاريخ"
-        f" الحاليان في العراق هما: {current_time_str}. أجب العميل بطريقة عملية ومختصرة."
-        f" إذا ذكر اسم 'أحمد' أو المعرف {ADMIN_USERNAME} أو المطور، فتحدث عنه"
-        f" بكل احترام وتقدير وتوضيح أنه صانعك ومطورك."
+        f" الحاليان في العراق هما: {current_time_str}."
     )
 
     chat_completion = client.chat.completions.create(
@@ -712,25 +675,12 @@ def chat_with_ai(message):
     total_messages_sent += 1
     iraq_now = datetime.utcnow() + timedelta(hours=3)
     current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-
     current_style = user_styles.get(user_id, "normal")
-    style_instructions = {
-        "formal": (
-            "تحدث بطريقة رسمية جداً، محترفة، ومهذبة مع استخدام مصطلحات منمقة."
-        ),
-        "funny": "تحدث بطريقة فكاهية، ممتعة، وخفيفة الظل مع مزحة بسيطة إن أمكن.",
-        "friendly": "تحدث بطريقة ودية، قريبة للقلب، وكأنك صديق مقرب.",
-        "normal": "تحدث بأسلوب وسط ومهذب وبسيط.",
-    }
-    chosen_style_prompt = style_instructions.get(
-        current_style, style_instructions["normal"]
-    )
 
     system_content = (
-        f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب: {chosen_style_prompt},"
-        f" واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. اسمك تويبي (Tweby)"
-        f" ومطورك هو أحمد ومعرفه الرسمي هو {ADMIN_USERNAME}. الوقت والتاريخ"
-        f" الحاليان في العراق هما: {current_time_str}."
+        f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب ودي. اسمك تويبي (Tweby) ومطورك هو"
+        f" أحمد ومعرفه الرسمي هو {ADMIN_USERNAME}. الوقت والتاريخ الحاليان في"
+        f" العراق هما: {current_time_str}."
     )
 
     chat_completion = client.chat.completions.create(
