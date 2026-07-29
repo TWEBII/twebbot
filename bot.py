@@ -5,12 +5,13 @@ import random
 import datetime
 import pytz
 from groq import Groq
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= الإعدادات الأساسية =================
 TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
 GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
+LOGO_PATH = "logo.jpg"  # يرجى تسمية صورة شعارك بهذا الاسم ورفعها بجانب الكود
 
 bot = telebot.TeleBot(TOKEN)
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -36,7 +37,7 @@ def load_db():
         "users": [],
         "banned_users": [],
         "bot_active": True,
-        "start_text": "أهلاً بك في بوت التذاكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
+        "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
         "custom_buttons": [],
         "support_logs": {},
         "user_instructions": {},
@@ -47,8 +48,7 @@ def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=4)
 
-# ================= صناعة لوحات التحكم وقوائم الأزرار =================
-
+# ================= لوحات تحكم الإدارة (الأدمن أحمد) =================
 def get_admin_keyboard():
     db = load_db()
     markup = InlineKeyboardMarkup()
@@ -69,12 +69,6 @@ def get_admin_keyboard():
     markup.row(InlineKeyboardButton("لوحه تحكم الصانع", callback_data="menu_creator"))
     return markup
 
-def get_back_button(target):
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data=f"back_{target}"))
-    return markup
-
-# ================= لوحات القوائم الفرعية للمطور =================
 def get_settings_keyboard():
     db = load_db()
     markup = InlineKeyboardMarkup()
@@ -82,22 +76,52 @@ def get_settings_keyboard():
     markup.row(InlineKeyboardButton("🟢 تفعيل البوت عند الكل", callback_data="set_bot_on"))
     markup.row(InlineKeyboardButton("🔴 تعطيل البوت عند الكل", callback_data="set_bot_off"))
     markup.row(InlineKeyboardButton(status, callback_data="none"))
-    markup.row(InlineKeyboardButton("« رجوع", callback_data="back_main"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
     return markup
 
 def get_content_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("📝 تعديل الأزرار الشفافة", callback_data="edit_all_inline"))
     markup.row(InlineKeyboardButton("➕ إضافة زر شفاف لرسالة START", callback_data="add_start_btn"))
-    markup.row(InlineKeyboardButton("« رجوع", callback_data="back_main"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
     return markup
 
 def get_creator_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("✏️ تعديل نص رسالة START", callback_data="edit_start_text"))
     markup.row(InlineKeyboardButton("❌ حذف الأزرار الشفافة المضافة", callback_data="clear_start_btns"))
-    markup.row(InlineKeyboardButton("« رجوع", callback_data="back_main"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
     return markup
+
+# ================= لوحات تحكم وقوائم المستخدمين العامين =================
+def build_user_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🔐 الاشتراك", callback_data="user_menu_sub"),
+               InlineKeyboardButton("📣 التواصل", callback_data="user_menu_contact"))
+    markup.row(InlineKeyboardButton("🛠 النظام والدعم", callback_data="user_menu_support"),
+               InlineKeyboardButton("❓ دليل الاستخدام", callback_data="user_menu_guide"))
+    markup.row(InlineKeyboardButton("📸 ترجمة صور ومستندات", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
+    
+    # دمج الأزرار المضافة ديناميكياً من لوحة التحكم إن وجدت
+    db = load_db()
+    for btn in db.get("custom_buttons", []):
+        markup.row(InlineKeyboardButton(btn['text'], url=btn['url']))
+    return markup
+
+def get_user_back_button():
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("« رجوع للقائمة الرئيسية", callback_data="user_back_home"))
+    return markup
+
+# Helper لإعادة التعديل على الرسالة النصية أو الصورة دون مشاكل واجهة تليجرام
+def edit_user_interface(call, text, markup):
+    try:
+        bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    except:
+        try:
+            bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        except Exception as e:
+            print(f"Interface Edit Error: {e}")
 
 # ================= دوال الذكاء الاصطناعي والمساعدات =================
 def send_random_sticker(chat_id):
@@ -140,36 +164,20 @@ def get_ai_reply(user_id, user_message):
         print(f"❌ Groq API Error: {e}")
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
 
-# بناء قائمة التفاعل لرسالة Start الخاصة بكل مستخدم
-def build_user_start_keyboard():
-    markup = InlineKeyboardMarkup()
-    db = load_db()
-    
-    # أزرار مضافة ديناميكياً من المطور
-    for btn in db.get("custom_buttons", []):
-        markup.row(InlineKeyboardButton(btn['text'], url=btn['url']))
-        
-    # الزر الثابت لترجمة المستندات والصور
-    markup.row(InlineKeyboardButton("📸 ترجمة صور ومستندات", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
-    return markup
-
 # ================= معالجة الأوامر والرسائل الأساسية =================
-
 @bot.message_handler(commands=['start'])
 def start_command(message):
     db = load_db()
     user_id = message.chat.id
     
-    # فحص الحظر
     if str(user_id) in db.get("banned_users", []):
         return
 
-    # فحص تعطل البوت عند الكل (ما عدا المطور)
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
         bot.send_message(user_id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
 
-    # معالجة دخول مستخدم جديد وتفعيل الإشعار للمطور
+    # إشعار الدخول للمستخدم الجديد
     if user_id not in db["users"]:
         db["users"].append(user_id)
         save_db(db)
@@ -178,7 +186,6 @@ def start_command(message):
                 bot.send_message(ADMIN_ID, f"🔔 دخل شخص جديد للبوت!\n👤 الأيدي: `{user_id}`", parse_mode="Markdown")
             except: pass
 
-    # التحقق لو كان المستخدم هو المطور
     if str(user_id) == ADMIN_ID:
         stats_text = (
             "• لوحة التحكم 🤖\n\n"
@@ -189,41 +196,62 @@ def start_command(message):
         )
         bot.send_message(user_id, stats_text, reply_markup=get_admin_keyboard())
     else:
-        # إرسال الصورة الترحيبية مع الأزرار للمستخدم العادي
-        # نستخدم رابط صورة افتراضية كنموذج
-        photo_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop"
-        
-        send_random_sticker(user_id)
-        try:
-            bot.send_photo(
-                user_id, 
-                photo_url, 
-                caption=db.get("start_text"), 
-                reply_markup=build_user_start_keyboard()
-            )
-        except:
-            bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_start_keyboard())
+        # إرسال الصورة المحلية (الشعار المرفوع من قبلك) مع قائمة الأزرار الكاملة للمستخدم
+        if os.path.exists(LOGO_PATH):
+            with open(LOGO_PATH, 'rb') as photo:
+                bot.send_photo(user_id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
+        else:
+            bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
 
-# ================= معالجة تفاعلات الـ Callback (الأزرار الشفافة) =================
+# ================= معالجة تفاعلات الأزرار الشفافة (Callback) =================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.message.chat.id
     db = load_db()
 
-    # أزرار المستخدمين العامين
+    # ---------------- أزرار حسابات المستخدمين العامين ----------------
     if str(user_id) != ADMIN_ID:
-        if call.data == "user_support":
+        if call.data == "user_back_home":
             bot.answer_callback_query(call.id)
-            # إرسال معلومات الدعم الفني الخاصة بك
-            support_info = (
-                "💸 **دعم وتطوير البوت**\n\n"
-                f"🆔 معرف بايننس (Binance ID): `907262941`\n"
-                f"📞 رقم آسيا سيل (AsiaCell): `07704701242`"
+            edit_user_interface(call, db.get("start_text"), build_user_keyboard())
+            
+        elif call.data == "user_menu_sub":
+            bot.answer_callback_query(call.id)
+            sub_text = (
+                "🔐 **قسم دعم وتطوير البوت ماليًا**\n\n"
+                "يمكنك المساهمة في استمرار وتطوير خدماتنا عبر قنوات الدعم التالية:\n\n"
+                "▪️ **معرف بايننس (Binance ID):** `907262941`\n"
+                "▪️ **رقم آسيا سيل (AsiaCell):** `07704701242`"
             )
-            bot.send_message(user_id, support_info, parse_mode="Markdown")
+            edit_user_interface(call, sub_text, get_user_back_button())
+            
+        elif call.data == "user_menu_contact":
+            bot.answer_callback_query(call.id)
+            contact_text = (
+                "📣 **معلومات التواصل الرسمية والمباشرة مع المطور:**\n\n"
+                "▪️ **الحساب الشخصي للمطور:** @TWEBii\n"
+                "▪️ **بوت التواصل المباشر:** @TWEBI_BOT\n\n"
+                "يسعدنا استقبال استفساراتكم في أي وقت."
+            )
+            edit_user_interface(call, contact_text, get_user_back_button())
+            
+        elif call.data == "user_menu_support":
+            bot.answer_callback_query(call.id)
+            today = datetime.datetime.now(pytz.timezone('Asia/Baghdad')).strftime('%Y-%m-%d')
+            if db.get("support_logs", {}).get(str(user_id)) == today:
+                bot.send_message(user_id, "⚠️ عذراً عزيزي، لقد قمت بإرسال رسالة دعم اليوم بالفعل. يُسمح بإرسال رسالة واحدة فقط في اليوم لتفادي الضغط.")
+                return
+                
+            msg = bot.send_message(user_id, "أهلاً بك عزيزي المستخدم في قسم النظام والدعم الفني. 🛠\n\nيرجى كتابة وإرسال تفاصيل الخطأ الذي واجهته أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيه رسالتك مباشرة إلى مالك البوت، علماً أنه يُسمح بإرسال بلاغ واحد فقط في اليوم لضمان سرعة الاستجابة.")
+            bot.register_next_step_handler(msg, process_user_support_message, today)
+            
+        elif call.data == "user_menu_guide":
+            bot.answer_callback_query(call.id)
+            msg = bot.send_message(user_id, "أهلاً بك عزيزي في دليل الاستخدام المطور. ❓\n\nقم بإرسال رسالة الآن توضح فيها بالتفصيل الطريقة أو الأسلوب المخصص الذي تفضل أن يتعامل به البوت معك (مثال: أجبني باختصار شديد، أو تعامل معي بأسلوب تعليمي)، وسيقوم البوت بحفظ وتطبيق هذه الطريقة معك فوراً.")
+            bot.register_next_step_handler(msg, process_user_instructions)
         return
 
-    # --- أزرار التحكم الخاصة بالمطور أحمد ---
+    # ---------------- أزرار لوحة التحكم الخاصة بالمطور أحمد ----------------
     if call.data == "back_main":
         stats_text = (
             "• لوحة التحكم 🤖\n\n"
@@ -257,23 +285,21 @@ def callback_handler(call):
         bot.register_next_step_handler(msg, process_add_start_button)
 
     elif call.data == "edit_all_inline":
-        bot.answer_callback_query(call.id, "يمكنك إدارة الأزرار الشفافة لرسالة START عبر خيارات لوحة المحتوى والصانع.", show_alert=True)
+        bot.answer_callback_query(call.id, "يمكنك إضافة الأزرار الشفافة لرسالة START عبر خيار (إضافة زر شفاف لرسالة START).", show_alert=True)
 
     elif call.data == "menu_subscribe":
-        # قسم إيضاح دعم البوت المالي
         support_view = (
-            "🔐 **قسم الاشتراك والدعم المالي للبوت**\n\n"
-            "المعلومات الحالية المعروضة للمستخدمين:\n"
+            "🔐 **معلومات الدعم الفعالة حالياً للمستخدمين:**\n\n"
             f"▪️ معرف بايننس: `907262941`\n"
             f"▪️ رقم آسيا سيل: `07704701242`"
         )
-        bot.edit_message_text(support_view, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_back_button("main"), parse_mode="Markdown")
+        bot.edit_message_text(support_view, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
     elif call.data == "users_count":
         bot.answer_callback_query(call.id, f"👥 عدد مستخدمي البوت الكلي: {len(db['users'])}", show_alert=True)
 
     elif call.data == "menu_finance":
-        bot.answer_callback_query(call.id, "💰 القسم المالي متاح وقيد الربط الفوري.")
+        bot.answer_callback_query(call.id, "💰 القسم المالي متاح وتلقائي.")
 
     elif call.data == "menu_broadcast":
         msg = bot.send_message(user_id, "📣 أرسل رسالة الإذاعة الآن لنشرها لكافة المستخدمين:")
@@ -281,8 +307,8 @@ def callback_handler(call):
 
     elif call.data == "menu_system_support":
         system_text = (
-            "🛠 **إعدادات النظام والدعم الفني**\n\n"
-            "للقيام بحظر مستخدم أو إلغاء حظره، استخدم الأزرار التفاعلية التالية:"
+            "🛠 **إعدادات التحكم بالحظر والأمان:**\n\n"
+            "اختر الإجراء المطلوب لتعديل حالة قيود المستخدمين:"
         )
         markup = InlineKeyboardMarkup()
         markup.row(InlineKeyboardButton("🚫 حظر مستخدم نهائياً", callback_data="admin_ban_user"),
@@ -291,7 +317,7 @@ def callback_handler(call):
         bot.edit_message_text(system_text, chat_id=user_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
     elif call.data == "admin_ban_user":
-        msg = bot.send_message(user_id, "🚫 أرسل الآن معرف الشخص (Username) أو الآيدي (ID) الخاص به ليتم حظره:")
+        msg = bot.send_message(user_id, "🚫 أرسل الآن معرف الشخص أو الآيدي الخاص به ليتم حظره:")
         bot.register_next_step_handler(msg, process_ban_action, True)
 
     elif call.data == "admin_unban_user":
@@ -310,7 +336,7 @@ def callback_handler(call):
         bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
     elif call.data == "menu_guide":
-        bot.edit_message_text("❓ دليل الاستخدام مفعل للمستخدمين لتوجيه طريقتهم الخاصة للذكاء الاصطناعي.", chat_id=user_id, message_id=call.message.message_id, reply_markup=get_back_button("main"))
+        bot.edit_message_text("❓ تفضيلات دليل الاستخدام تعمل تلقائياً مع مدخلات العميل وتُحفظ بقاعدة البيانات.", chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
     elif call.data == "menu_creator":
         bot.edit_message_text("🤖 **لوحة تحكم الصانع الفوقية:**", chat_id=user_id, message_id=call.message.message_id, reply_markup=get_creator_keyboard(), parse_mode="Markdown")
@@ -322,9 +348,9 @@ def callback_handler(call):
     elif call.data == "clear_start_btns":
         db["custom_buttons"] = []
         save_db(db)
-        bot.answer_callback_query(call.id, "❌ تم حذف وتصفير جميع الأزرار الشفافة المضافة لرسالة START.", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ تم تصفير وحذف الأزرار الإضافية.", show_alert=True)
 
-# ================= معالجة دوال الـ Step المتقدمة للمطور =================
+# ================= دمج ومعالجة مدخلات البيانات الفوقية للمطور =================
 def process_add_start_button(message):
     if str(message.chat.id) != ADMIN_ID: return
     try:
@@ -341,19 +367,19 @@ def process_edit_start_text(message):
     db = load_db()
     db["start_text"] = message.text
     save_db(db)
-    bot.reply_to(message, "✅ تم تحديث وتغيير نص رسالة START بنجاح.")
+    bot.reply_to(message, "✅ تم تحديث نص رسالة START بنجاح.")
 
 def process_broadcast(message):
     if str(message.chat.id) != ADMIN_ID: return
     db = load_db()
     success = 0
-    bot.reply_to(message, "جاري بدء الإذاعة ونشر المحتوى للجميع...")
+    bot.reply_to(message, "جاري نشر الإذاعة والمحتوى...")
     for user_id in db["users"]:
         try:
             bot.copy_message(user_id, message.chat.id, message.message_id)
             success += 1
         except: pass
-    bot.send_message(message.chat.id, f"📢 تم إرسال الإذاعة بنجاح لـ {success} مستخدم.")
+    bot.send_message(message.chat.id, f"📢 تمت الإذاعة بنجاح لـ {success} مستخدم.")
 
 def process_ban_action(message, mode_ban=True):
     if str(message.chat.id) != ADMIN_ID: return
@@ -364,85 +390,50 @@ def process_ban_action(message, mode_ban=True):
         if target not in db["banned_users"]:
             db["banned_users"].append(target)
             save_db(db)
-            bot.reply_to(message, f"🚫 تم حظر المستخدم `{target}` نهائياً بنجاح من البوت.", parse_mode="Markdown")
+            bot.reply_to(message, f"🚫 تم حظر المستخدم `{target}` بنجاح.", parse_mode="Markdown")
     else:
         if target in db["banned_users"]:
             db["banned_users"].remove(target)
             save_db(db)
-            bot.reply_to(message, f"🟢 تم إلغاء حظر المستخدم `{target}` وأصبح بإمكانه استخدام البوت.", parse_mode="Markdown")
+            bot.reply_to(message, f"🟢 تم إلغاء حظر المستخدم `{target}` بنجاح.", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "⚠️ هذا المستخدم غير موجود في قائمة المحظورين أصلاً.")
+            bot.reply_to(message, "⚠️ هذا المستخدم غير موجود في قائمة الحظر.")
 
-# ================= التفاعل العام وقائمتي المستخدمين =================
+# ================= معالجة رسائل ومدخلات الأعضاء والمجموعات =================
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 def handle_user_messages(message):
     db = load_db()
     user_id = message.chat.id
     text = message.text
 
-    # فحص الحظر
+    # التحقق من قيود الحظر الفردي والمعرفات
     if str(user_id) in db.get("banned_users", []) or (message.from_user.username and message.from_user.username in db.get("banned_users", [])):
         return
 
-    # فحص تعطل البوت للجميع
+    # فحص حالة تعطل البوت عند الجميع
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
         return
 
-    # معالجة الردود في المجموعات (عند ذكره أو الرد عليه)
+    # معالجة استدعاء والرد على البوت داخل المجموعات عند ذكره
     if message.chat.type in ['group', 'supergroup']:
         is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB"])
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         if not (is_mentioned or is_reply_to_bot):
             return
 
-    # معالجة القوائم النصية العامة للمستخدمين بناءً على تفاعل الكيبورد الأساسي
-    if text == "⚙️ الإعدادات":
-        bot.reply_to(message, "⚙️ الإعدادات متاحة لمطور البوت فقط عبر لوحة التحكم الرئيسية.")
-        return
-    elif text == "📝 المحتوى":
-        bot.reply_to(message, "📝 المحتوى متاح لمطور البوت لتخصيص الأزرار.")
-        return
-    elif text == "🔐 الاشتراك":
-        # عرض معلومات الدعم للمستخدمين بشكل تفاعلي رسمي
-        support_keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 تفاصيل دعم البوت المالي", callback_data="user_support"))
-        bot.reply_to(message, "أهلاً بك عزيزي في قسم الدعم والاشتراك المالي الخاص بالبوت:", reply_markup=support_keyboard)
-        return
-    elif text == "📣 التواصل":
-        dev_info = (
-            "📣 **قنوات ومعلومات التواصل الرسمية مع المطور:**\n\n"
-            "▪️ الحساب الرسمي للمطور: @TWEBii\n"
-            "▪️ بوت التواصل المباشر: @TWEBI_BOT"
-        )
-        bot.reply_to(message, dev_info)
-        return
-    elif text == "🛠 النظام والدعم":
-        # قيد المرة الواحدة في اليوم للرسائل
-        today = datetime.datetime.now(pytz.timezone('Asia/Baghdad')).strftime('%Y-%m-%d')
-        if db.get("support_logs", {}).get(str(user_id)) == today:
-            bot.reply_to(message, "⚠️ عذراً عزيزي، لقد قمت بإرسال رسالة دعم اليوم بالفعل. يُسمح بإرسال رسالة واحدة فقط في اليوم لتفادي الضغط.")
-            return
-            
-        msg = bot.reply_to(message, "أهلاً عزيزي المستخدم، قم بإرسال الخطأ في البوت أو قم بإرسال إضافة تحديث للبوت. أرسل رسالة واحدة علماً أن رسالتك سوف تصل للمالك ولمرة واحدة في اليوم في رسالة واحدة فقط.")
-        bot.register_next_step_handler(msg, process_user_support_message, today)
-        return
-    elif text == "❓ دليل الاستخدام":
-        msg = bot.reply_to(message, "أهلاً عزيزي، قم بإرسال تفصيل عن الطريقة التي تريدني أن أتعامل معك بها ومن يرسل شخص رسالة البوت يطبق الطريقة.")
-        bot.register_next_step_handler(msg, process_user_instructions)
-        return
-
-    # زيادة عداد الرسائل للتحكم بالملصقات (كل 10 رسائل)
+    # زيادة عداد رسائل المستخدم الحالية للتحكم بالملصقات (كل 10 رسائل)
     user_key = str(user_id)
     counters = db.get("msg_counters", {})
     counters[user_key] = counters.get(user_key, 0) + 1
     db["msg_counters"] = counters
     save_db(db)
 
-    # معالجة إرسال الرد الذكي عبر Groq
+    # معالجة إرسال الرد المطور عبر خادم Groq للذكاء الاصطناعي
     bot.send_chat_action(user_id, 'typing')
     ai_response = get_ai_reply(user_id, text)
     bot.reply_to(message, ai_response)
 
-    # إرسال ملصق عشوائي بدقة عند وصول العداد لرقم 10 ومضاعفاته
+    # إرسال ملصق بدقة تامة كل 10 رسائل متتالية من نفس العميل
     if counters[user_key] % 10 == 0:
         send_random_sticker(user_id)
 
@@ -450,24 +441,22 @@ def process_user_support_message(message, today):
     db = load_db()
     user_id = message.chat.id
     
-    # حفظ سجل الإرسال لمنعه بقية اليوم
     if "support_logs" not in db: db["support_logs"] = {}
     db["support_logs"][str(user_id)] = today
     save_db(db)
     
-    # توجيه الرسالة فورياً للمطور أحمد
     username = f"@{message.from_user.username}" if message.from_user.username else "بدون يوزر"
     report_text = (
-        f"📩 **رسالة اقتراح/بلاغ دعم فني جديدة**\n\n"
+        f"📩 **رسالة بلاغ دعم فني جديدة**\n\n"
         f"👤 أيدي المستخدم: `{user_id}`\n"
         f"🔗 يوزر المستخدم: {username}\n\n"
-        f"💬 نص الرسالة المرسلة:\n{message.text}"
+        f"💬 نص البلاغ المرسل:\n{message.text}"
     )
     try:
         bot.send_message(ADMIN_ID, report_text)
-        bot.reply_to(message, "✅ تم استلام رسالتك وإرسالها للمطور بنجاح. شكراً لك!")
+        bot.reply_to(message, "✅ تم استلام تقريرك بنجاح، وتوجيهه فورا للمطور أحمد. شكراً لك!")
     except:
-        bot.reply_to(message, "⚠️ عذراً، فشل إرسال البلاغ الفني حالياً، يرجى إعادة المحاولة لاحقاً.")
+        bot.reply_to(message, "⚠️ عذراً، واجهنا مشكلة في تمرير البلاغ حالياً، يرجى المحاولة لاحقاً.")
 
 def process_user_instructions(message):
     db = load_db()
@@ -477,9 +466,9 @@ def process_user_instructions(message):
     db["user_instructions"][str(user_id)] = message.text
     save_db(db)
     
-    bot.reply_to(message, "✅ ممتاز! لقد قمت بحفظ طريقتك وأسلوبك المفضل، وسألتزم بتطبيقها في ردودي القادمة معك بالكامل.")
+    bot.reply_to(message, "✅ تم حفظ التفضيلات والأسلوب بنجاح، سيلتزم البوت بتطبيق طريقتك في جميع ردوده القادمة معك.")
 
-# ================= بدء تشغيل البوت =================
+# ================= بدء التشغيل الفعلي للملف =================
 if __name__ == "__main__":
-    print("...تم تشغيل وتفعيل البوت بكافة التحديثات المتقدمة بنجاح")
+    print("...تم تحديث وتشغيل البوت بكافة المتطلبات والأزرار الجديدة بنجاح")
     bot.infinity_polling()
