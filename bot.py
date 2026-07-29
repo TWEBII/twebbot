@@ -7,27 +7,20 @@ from groq import Groq
 import telebot
 from telebot import types
 
-# مفتاح Groq الخاص بك
 GROQ_API_KEY = "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"
-# توكن بوت التليجرام الخاص بك
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-# رابط مشروعك الثابت على Railway
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
-# آيدي حسابك (المطور)
 ADMIN_CHAT_ID = 8411608232 
 
-# أسماء حزم الملصقات
 STICKER_PACK_NAMES = [
     "Funnyye_by_maker_Sticker_bot",
     "Life_by_maker_Sticker_bot"
 ]
 cached_stickers = []
 message_counter = 0
-
 users_db = set()
 total_messages_sent = 0
 
-# رسالة البدء الافتراضية
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي هنا على تليجرام.\n\n"
     "🌐 لترجمة المستندات والملفات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:\n\n"
@@ -42,7 +35,6 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
-# دالة لجلب ملصقات الحزمتين في الخلفية لعدم إبطاء السيرفر
 def load_sticker_packs_background():
     global cached_stickers
     all_stickers = []
@@ -55,7 +47,6 @@ def load_sticker_packs_background():
             pass
     cached_stickers = all_stickers
 
-# أمر البدء وترحيب المستخدمين
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     user = message.from_user
@@ -85,7 +76,6 @@ def send_welcome(message):
         except Exception:
             pass
 
-# أمر لوحة التحكم للمطور
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
     if message.from_user.id == ADMIN_CHAT_ID:
@@ -153,14 +143,12 @@ def save_new_start_message(message):
     global custom_start_message
     if message.from_user.id != ADMIN_CHAT_ID:
         return
-    
     custom_start_message = message.text
     bot.reply_to(message, "تم تحديث رسالة البدء بنجاح.", parse_mode="Markdown")
 
 def execute_broadcast(message):
     if message.from_user.id != ADMIN_CHAT_ID:
         return
-    
     sent_count = 0
     fail_count = 0
     status_msg = bot.reply_to(message, "جاري إرسال الإذاعة لجميع المستخدمين...")
@@ -191,11 +179,7 @@ def handle_restricted_media(message):
 @bot.message_handler(content_types=['sticker'])
 def handle_stickers(message):
     if message.chat.type == "private":
-        responses = [
-            "ملصق جميل.",
-            "تسلم على الملصق.",
-            "حلوة هاي الحركة."
-        ]
+        responses = ["ملصق جميل.", "تسلم على الملصق.", "حلوة هاي الحركة."]
         bot.reply_to(message, random.choice(responses))
         if cached_stickers and random.random() < 0.5:
             bot.send_sticker(message.chat.id, random.choice(cached_stickers))
@@ -205,25 +189,16 @@ def chat_with_ai(message):
     global message_counter, total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-
     user_message = message.text
-    chat_type = message.chat.type
-
-    if chat_type in ["group", "supergroup"]:
-        is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
-        text_lower = user_message.lower()
-        mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
-        mentioned_dev = "احمد" in text_lower
-
-        if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
-            return
+    
+    print(f"تم استقبال رسالة نصية: {user_message}")
 
     try:
         sent_msg = bot.reply_to(message, "جاري الرد...")
         message_counter += 1
         total_messages_sent += 1
         
-        iraq_now = datetime.utcnow() + timedelta(hours+3 if 'hours+3' in globals() else 3)
+        iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
@@ -243,10 +218,13 @@ def chat_with_ai(message):
         ai_response = chat_completion.choices[0].message.content
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
 
-    except Exception:
-        bot.edit_message_text(f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}", chat_id=message.chat.id, message_id=sent_msg.message_id)
+    except Exception as e:
+        print(f"خطأ في معالجة الذكاء الاصطناعي: {e}")
+        try:
+            bot.edit_message_text(f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        except:
+            pass
 
-# مسار استقبال تحديثات تليجرام (Webhook)
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def redirect_message():
     if request.headers.get('content-type') == 'application/json':
@@ -262,9 +240,7 @@ def index():
     return "TWEB Google Translate Bot Running Smoothly!", 200
 
 if __name__ == "__main__":
-    # تشغيل جلب الملصقات في خلفية منفصلة لكي لا يتوقف السيرفر بسبب البطء
     threading.Thread(target=load_sticker_packs_background).start()
-    
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}")
