@@ -20,7 +20,7 @@ def send_welcome(message):
     
     welcome_text = (
         "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي هنا على تليجرام.\n\n"
-        "🌐 لترجمة المستندات والمقالات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:\n\n"
+        "🌐 لترجمة المستندات والملفات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:\n\n"
         "🛠 معلومات المطور والقنوات:\n"
         "• المطور: أحمد (@TWEBii)\n"
         "• القنوات الرسمية:\n"
@@ -67,9 +67,9 @@ def chat_with_ai(message):
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_data = request.get_json()
-        if json_data:
-            update = types.Update.de_json(json_data)
-            bot.process_new_updates([update])
+        if json_data and 'message' in json_data:
+            message = types.Message.de_json(json_data['message'])
+            chat_with_ai(message)
         return '', 200
     return 'Forbidden', 403
 
