@@ -24,7 +24,7 @@ def generate_ai_response(user_text):
                     "content": user_text
                 }
             ],
-            model="llama-3.1-8b-instant",  # النموذج الجديد والنشط من Groq
+            model="llama-3.1-8b-instant",  # النموذج الجديد والنشط 100%
             temperature=0.2, 
         )
         return chat_completion.choices[0].message.content
