@@ -71,7 +71,7 @@ def generate_ai_response(user_text):
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_text}
             ],
-            model="llama-3.1-8b-instant",  # النموذج النشط والحديث 100%
+            model="llama-3.1-8b-instant",  # النموذج الجديد النشط 100%
             temperature=0.2, 
         )
         return chat_completion.choices[0].message.content
@@ -112,13 +112,12 @@ def register_handlers(bot_instance):
         elif text == "🛠 معلومات البوت":
             bot_instance.reply_to(message, f"البوت يعمل بملف واحد متكامل ومربوط بالذكاء الاصطناعي بنجاح ✅")
         else:
-            # توجيه الرسالة إلى الذكاء الاصطناعي مباشرة
             ai_reply = generate_ai_response(text)
             bot_instance.reply_to(message, ai_reply)
 
 # --- 4. التشغيل الرئيسي وحماية الاتصال (Main Loop) ---
 def main():
-    print(f"جاري تهيئة بوت {BOT_NAME}...")
+    print(f"جاري تشغيل بوت {BOT_NAME}...")
     
     initialize_db()
     print("تم تهيئة قاعدة البيانات بنجاح ✅")
@@ -126,9 +125,7 @@ def main():
     register_handlers(bot)
     print("تم ربط الأوامر والردود بنجاح ✅")
     
-    # فترة إيقاف قصيرة لمنع خطأ التعارض 409
-    print("انتظار 5 ثوانٍ لتنظيف الجلسات السابقة...")
-    time.sleep(5)
+    time.sleep(3)
     
     try:
         bot.remove_webhook()
@@ -136,9 +133,8 @@ def main():
     except Exception as e:
         print(f"ملاحظة: {e}")
         
-    print("البوت يعمل الآن بثبات تام وبدون تعارض!")
+    print("البوت يعمل الآن بثبات تام!")
     
-    # حلقة التشغيل الآمنة المستمرة
     while True:
         try:
             bot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
