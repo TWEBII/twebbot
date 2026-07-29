@@ -1,4 +1,4 @@
-دpyTelegramBotAPI
+pyTelegramBotAPI
 Flask
 groq
 pypdf
