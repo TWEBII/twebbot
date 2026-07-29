@@ -7,10 +7,14 @@ from flask import Flask, request
 from groq import Groq
 import pypdf
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+import fitz  # PyMuPDF للتعامل مع ملفات الـ PDF
 import telebot
 from telebot import types
-import fitz  # المكتبة الذكية للتعامل مع الـ PDF المصور
+import requests
+import numpy as np
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # إعدادات البوت والربط الثابتة
 GROQ_API_KEY = "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"
@@ -18,6 +22,10 @@ TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
+
+# إعدادات الخط العربي الذكي
+FONT_URL = "https://github.com/googlefonts/amiri/raw/main/fonts/ttf/Amiri-Regular.ttf"
+FONT_PATH = "Amiri-Regular.ttf"
 
 # إعدادات الملصقات
 STICKER_PACK_NAMES = ["Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"]
@@ -30,14 +38,11 @@ user_styles = {}
 
 # رسالة الترحيب الافتراضية
 custom_start_message = (
-    "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي للترجمة وقراءة الملفات والصور.\n\n"
-    "🛠 **ما يمكنني فعله لك:**\n"
-    "• ترجمة ملفات الـ PDF (الرقمية والمصورة سكانر) والملفات النصية بدقة عالية\n"
-    "• ترجمة الصور الفردية المستندة على النصوص الطبية والعلمية\n\n"
+    "هلا بيك. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
+    "🛠 ما يمكنني فعله لك الآن:\n"
+    "• ترجمة الصور مرئياً مع الحفاظ على الخلفية والتصميم الأصلي (مثل ترجمة جوجل)\n"
+    "• ترجمة ملفات الـ PDF بالكامل صفحة بصفحة مع الإبقاء على شكل ومحتوى الملف الأصلي وتغيير النصوص فقط\n\n"
     "• المطور: أحمد (@TWEBii)\n"
-    "• القنوات الرسمية:\n"
-    "  - @lTelegramWeb\n"
-    "  - @TWEBiii\n\n"
     "اختر الخدمة المطلوبة من الأزرار بالأسفل أو أرسل ملفك مباشرة!"
 )
 
@@ -46,14 +51,145 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
 
+def ensure_arabic_font():
+    """تنزيل خط عربي معتمد ودعمه تلقائياً إذا لم يكن متوفراً على السيرفر"""
+    if not os.path.exists(FONT_PATH):
+        try:
+            r = requests.get(FONT_URL, timeout=15)
+            with open(FONT_PATH, "wb") as f:
+                f.write(r.content)
+        except Exception as e:
+            print(f"فشل تحميل الخط العربي: {e}")
+
+
+def clean_markdown(text):
+    if not text:
+        return ""
+    return text.replace("**", "").replace("###", "").replace("##", "").replace("#", "").replace("`", "")
+
+
+def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
+    try:
+        return bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode=parse_mode)
+    except Exception:
+        return bot.edit_message_text(clean_markdown(text), chat_id=chat_id, message_id=message_id)
+
+
+def translate_image_core(image_bytes):
+    """الدالة السحرية لترجمة الصورة مرئياً وطمس النص الإنجليزي القديم ووضع العربي مكانه بنفس التنسيق"""
+    ensure_arabic_font()
+    
+    # فتح الصورة وتحويلها لنظام الألوان الأساسي
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        # استخراج النصوص وإحداثياتها الدقيقة بيكسل ببيكسل
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    except Exception:
+        return image_bytes  # العودة بالصورة الأصلية في حال حدوث مشكلة OCR مفاجئة
+        
+    n_boxes = len(data['text'])
+    blocks = {}
+    
+    # تجميع الكلمات المفرقة بناءً على رقم البلوك الإنشائي لضمان سياق ترجمة الجملة الكاملة
+    for i in range(n_boxes):
+        text = data['text'][i].strip()
+        if not text:
+            continue
+        b_num = data['block_num'][i]
+        if b_num not in blocks:
+            blocks[b_num] = []
+        blocks[b_num].append(i)
+        
+    for b_num, indices in blocks.items():
+        block_words = [data['text'][idx] for idx in indices]
+        full_text = " ".join(block_words).strip()
+        if not full_text or len(full_text) < 2:
+            continue
+            
+        # حساب أبعاد المربع الشامل للفقرة بالكامل
+        lefts = [data['left'][idx] for idx in indices]
+        tops = [data['top'][idx] for idx in indices]
+        rights = [data['left'][idx] + data['width'][idx] for idx in indices]
+        bottoms = [data['top'][idx] + data['height'][idx] for idx in indices]
+        
+        x1, y1 = min(lefts), min(tops)
+        x2, y2 = max(rights), max(bottoms)
+        
+        # توسيع المربع قليلاً لضمان التغطية الكاملة للهوامش
+        x1, y1 = max(0, x1 - 5), max(0, y1 - 5)
+        x2, y2 = min(img.width, x2 + 5), min(img.height, y2 + 5)
+        
+        # استدعاء الذكاء الاصطناعي لترجمة الفقرة بدقة متناهية وبدون هوامش أو تعليقات جانبية
+        prompt = f"Translate the following text to professional Arabic. Return ONLY the translated Arabic text, without any quotes, notes, explanations, or English words:\n\n{full_text}"
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama-3.3-70b-versatile",
+                temperature=0.2
+            )
+            arabic_text = chat_completion.choices[0].message.content.strip()
+        except Exception:
+            arabic_text = full_text
+            
+        # معالجة ذكية للون الخلفية: أخذ متوسط ألوان المنطقة لمسح النص القديم بسلاسة ودون تشويه
+        box_region = img.crop((x1, y1, x2, y2))
+        img_np = np.array(box_region)
+        if img_np.size > 0:
+            mean_color = img_np.mean(axis=(0, 1))
+            bg_color = tuple(map(int, mean_color))
+        else:
+            bg_color = (255, 255, 255)
+            
+        # تحديد لون النص تلقائياً (أبيض أو أسود) بناءً على درجة سطوع الخلفية المستخرجة لمنع اختفاء الخط
+        luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
+        text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
+        
+        # رسم مستطيل الخلفية لمسح النص الإنجليزي القديم نهائياً
+        draw.rectangle([x1, y1, x2, y2], fill=bg_color)
+        
+        # إعادة تشكيل الخط وتصحيح مسار الـ RTL للغة العربية لتجنب الحروف المتقطعة والمقلوبة
+        try:
+            reshaped = arabic_reshaper.reshape(arabic_text)
+            bidi_text = get_display(reshaped)
+        except Exception:
+            bidi_text = arabic_text
+            
+        # ضبط حجم الخط ديناميكياً ليناسب ارتفاع الصندوق بنسبة متناسقة
+        box_h = y2 - y1
+        font_size = max(11, int(box_h * 0.75))
+        
+        try:
+            font = ImageFont.truetype(FONT_PATH, font_size)
+        except Exception:
+            font = ImageFont.load_default()
+            
+        # حساب إحداثيات مركز النص لوضعه في المنتصف تماماً
+        try:
+            tw, th = draw.textbbox((0, 0), bidi_text, font=font)[2:]
+        except Exception:
+            tw, th = font.getsize(bidi_text)
+            
+        tx = x1 + (x2 - x1 - tw) // 2
+        ty = y1 + (y2 - y1 - th) // 2
+        
+        # طباعة النص العربي في موقعه الأصلي الجديد
+        draw.text((tx, ty), bidi_text, fill=text_color, font=font)
+        
+    # تصدير الصورة النهائية المترجمة بصيغة البايتات الجاهزة للإرسال
+    out_buf = io.BytesIO()
+    img.save(out_buf, format="JPEG", quality=95)
+    return out_buf.getvalue()
+
+
 def load_sticker_packs():
     global cached_stickers
     all_stickers = []
     for pack_name in STICKER_PACK_NAMES:
         try:
             pack = bot.get_sticker_set(pack_name)
-            stickers = [sticker.file_id for sticker in pack.stickers]
-            all_stickers.extend(stickers)
+            all_stickers.extend([sticker.file_id for sticker in pack.stickers])
         except Exception as e:
             print(f"فشل تحميل حزمة الملصقات {pack_name}: {e}")
     cached_stickers = all_stickers
@@ -61,18 +197,17 @@ def load_sticker_packs():
 
 
 def set_bot_commands():
-    commands = [
-        types.BotCommand("start", "بداية التشغيل والقائمة الرئيسية"),
-        types.BotCommand("info", "معلومات المطور والقنوات الرسمية"),
-        types.BotCommand("style", "تخصيص أسلوب تعامل البوت معك"),
-    ]
     try:
-        bot.set_my_commands(commands)
+        bot.set_my_commands([
+            types.BotCommand("start", "القائمة الرئيسية والمساعدة"),
+            types.BotCommand("info", "معلومات المطور والقنوات"),
+            types.BotCommand("style", "تخصيص أسلوب الرد")
+        ])
     except Exception as e:
         print(f"فشل تعيين الأوامر: {e}")
 
 
-# --- أوامر البوت الأساسية ---
+# --- أوامر التفاعل والتحكم الأساسية ---
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -81,166 +216,44 @@ def send_welcome(message):
     
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("🖼 ترجمة الصور", callback_data="translate_photos_info"),
-        types.InlineKeyboardButton("📁 ترجمة الملفات", callback_data="translate_files_info")
+        types.InlineKeyboardButton("🖼 ترجمة الصور مرئياً", callback_data="translate_photos_info"),
+        types.InlineKeyboardButton("📁 ترجمة الملفات مع الحفاظ على التنسيق", callback_data="translate_files_info")
     )
-    markup.add(types.InlineKeyboardButton("📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"))
-    markup.add(types.InlineKeyboardButton("⚙️ طريقة تعامل البوت معي", callback_data="bot_style"))
+    markup.add(types.InlineKeyboardButton("📢 القنوات الرسمية والمطور", callback_data="my_info"))
     
     if user_id == ADMIN_CHAT_ID:
         markup.add(types.InlineKeyboardButton("🛠 لوحة التحكم الإدارية", callback_data="admin_panel"))
         
-    bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
+    bot.reply_to(message, custom_start_message, reply_markup=markup)
 
-
-@bot.message_handler(commands=['info'])
-def info_command(message):
-    text = (
-        "📌 **معلومات المطور والقنوات:**\n\n"
-        "👤 **المطور:** أحمد (@TWEBii)\n"
-        "📢 **القنوات الرسمية:**\n"
-        "  - @lTelegramWeb\n"
-        "  - @TWEBiii\n\n"
-        "✨ تواصل معنا لأي استفسار أو اقتراح للمشروع!"
-    )
-    bot.reply_to(message, text, parse_mode="Markdown", disable_web_page_preview=True)
-
-
-@bot.message_handler(commands=['style'])
-def style_command(message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("😊 أسلوب ودي وطبيعي", callback_data="style_friendly"),
-        types.InlineKeyboardButton("👔 أسلوب رسمي ومحترف", callback_data="style_formal"),
-        types.InlineKeyboardButton("⚡ أسلوب مختصر وسريع", callback_data="style_concise"),
-        types.InlineKeyboardButton("🌌 أسلوب شعري وكوني", callback_data="style_poetic")
-    )
-    bot.reply_to(message, "⚙️ اختر أسلوب الرد المفضل لديك ليتحدث به الذكاء الاصطناعي معك:", reply_markup=markup)
-
-
-# --- معالجة الضغط على الأزرار التفاعلية (Callback Query) ---
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    global custom_start_message
     user_id = call.from_user.id
     data = call.data
 
     if data == "translate_photos_info":
-        bot.answer_callback_query(call.id, "فقط أرسل أي صورة تحتوي نصوصاً، وسأترجمها وأعيد إرسالها لك مع التقرير والعداد!", show_alert=True)
+        bot.answer_callback_query(call.id, "أرسل أي صورة تحتوي نصوصاً إنجليزية، وسأقوم باستبدال النصوص بداخلها إلى العربية تلقائياً وبنفس المظهر!", show_alert=True)
     elif data == "translate_files_info":
-        bot.answer_callback_query(call.id, "قم بإرسال ملف PDF (سواء كان رقمياً أو مصوراً سكانر) وسأتولى قراءته بالكامل وترجمته كملف جاهز!", show_alert=True)
+        bot.answer_callback_query(call.id, "أرسل ملف PDF، وسأقوم بترجمة كل صفحة وصورة بداخل الملف مرئياً وإعادة إرساله كملف PDF محتفظ بتصميمه الأصلي!", show_alert=True)
     elif data == "my_info":
-        text = "📌 **المطور:** أحمد (@TWEBii)\n📢 **القنوات:**\n- @lTelegramWeb\n- @TWEBiii"
-        bot.answer_callback_query(call.id, text, show_alert=True)
-        
-    elif data == "bot_style":
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("😊 أسلوب ودي وطبيعي", callback_data="style_friendly"),
-            types.InlineKeyboardButton("👔 أسلوب رسمي ومحترف", callback_data="style_formal"),
-            types.InlineKeyboardButton("⚡ أسلوب مختصر وسريع", callback_data="style_concise"),
-            types.InlineKeyboardButton("🌌 أسلوب شعري وكوني", callback_data="style_poetic"),
-            types.InlineKeyboardButton("🔙 العودة للقائمة", callback_data="back_to_main")
-        )
-        bot.edit_message_text("⚙️ اختر أسلوب الرد المفضل لديك:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
-        
-    elif data.startswith("style_"):
-        style_type = data.split("_")[1]
-        styles_map = {
-            "friendly": "ودّي وطبيعي كصديق مقرب",
-            "formal": "رسمي، جاد، ومحترف جداً",
-            "concise": "مختصر وسريع ويعطي زبدة الكلام مباشرة بدون إطالة",
-            "poetic": "شعري، هادئ، يميل إلى أسلوب الليل والنجوم والعناصر الكونية العميقة"
-        }
-        user_styles[user_id] = styles_map.get(style_type, "ودي وطبيعي")
-        bot.answer_callback_query(call.id, f"✅ تم حفظ تفضيلك: أسلوب {user_styles[user_id]}", show_alert=True)
-
+        bot.answer_callback_query(call.id, f"المطور: {ADMIN_USERNAME}\nالقنوات:\n- @lTelegramWeb\n- @TWEBiii", show_alert=True)
     elif data == "admin_panel" and user_id == ADMIN_CHAT_ID:
         show_admin_menu(call.message)
-    elif data == "admin_stats" and user_id == ADMIN_CHAT_ID:
-        stats_text = (
-            "📊 **إحصائيات البوت الحالية:**\n\n"
-            f"👥 عدد المستخدمين الكلي: {len(users_db)}\n"
-            f"💬 إجمالي الرسائل التي تمت معالجتها: {total_messages_sent}\n"
-            f"📦 الملصقات المحملة في الذاكرة: {len(cached_stickers)} ملصق"
-        )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 عودة للوحة التحكم", callback_data="admin_panel"))
-        bot.edit_message_text(stats_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-        
-    elif data == "admin_broadcast" and user_id == ADMIN_CHAT_ID:
-        msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن نص الرسالة التي تريد إذاعتها لجميع مستخدمي البوت، أو أرسل `/cancel` للإلغاء:")
-        bot.register_next_step_handler(msg, process_broadcast_step)
-        
-    elif data == "admin_edit_start" and user_id == ADMIN_CHAT_ID:
-        msg = bot.send_message(call.message.chat.id, "📝 أرسل الآن النص الجديد لرسالة الترحيب `/start` (يدعم الماركداون)، أو أرسل `/cancel` للإلغاء:")
-        bot.register_next_step_handler(msg, process_edit_start_step)
-        
-    elif data == "admin_reload_stickers" and user_id == ADMIN_CHAT_ID:
-        count = load_sticker_packs()
-        bot.answer_callback_query(call.id, f"🔄 تم تحديث الملصقات بنجاح! تم تحميل {count} ملصق.", show_alert=True)
-
     elif data == "back_to_main":
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("🖼 ترجمة الصور", callback_data="translate_photos_info"),
-            types.InlineKeyboardButton("📁 ترجمة الملفات", callback_data="translate_files_info")
-        )
-        markup.add(types.InlineKeyboardButton("📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"))
-        markup.add(types.InlineKeyboardButton("⚙️ طريقة تعامل البوت معي", callback_data="bot_style"))
-        if user_id == ADMIN_CHAT_ID:
-            markup.add(types.InlineKeyboardButton("🛠 لوحة التحكم الإدارية", callback_data="admin_panel"))
-        bot.edit_message_text(custom_start_message, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+        send_welcome(call.message)
 
 
 def show_admin_menu(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton("📢 إذاعة رسالة للمستخدمين", callback_data="admin_broadcast"),
-        types.InlineKeyboardButton("📝 تعديل رسالة البدء دینامیکياً", callback_data="admin_edit_start"),
-        types.InlineKeyboardButton("🔄 تحديث حزم الملصقات التفاعلية", callback_data="admin_reload_stickers"),
         types.InlineKeyboardButton("📊 عرض إحصائيات النظام", callback_data="admin_stats"),
         types.InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")
     )
     bot.edit_message_text("🛠 لوحة التحكم الإدارية الخاصة بك يا أحمد:", chat_id=message.chat.id, message_id=message.message_id, reply_markup=markup)
 
 
-# --- خطوات لوحة التحكم الإدارية ---
-
-def process_broadcast_step(message):
-    if message.text == "/cancel":
-        bot.reply_to(message, "❌ تم إلغاء عملية الإذاعة.")
-        return
-    if not message.text:
-        bot.reply_to(message, "⚠️ يرجى إرسال رسالة نصية فقط للإذاعة.")
-        return
-
-    success_count = 0
-    fail_count = 0
-    for uid in list(users_db):
-        try:
-            bot.send_message(uid, message.text)
-            success_count += 1
-        except:
-            fail_count += 1
-    bot.reply_to(message, f"📢 **اكتملت الإذاعة بنجاح!**\n\n✅ تم الإرسال إلى: {success_count}\n❌ فشل الإرسال: {fail_count}", parse_mode="Markdown")
-
-
-def process_edit_start_step(message):
-    global custom_start_message
-    if message.text == "/cancel":
-        bot.reply_to(message, "❌ تم إلغاء تعديل رسالة البدء.")
-        return
-    if not message.text:
-        bot.reply_to(message, "⚠️ يجب إرسال نص صالح.")
-        return
-        
-    custom_start_message = message.text
-    bot.reply_to(message, "✅ تم تحديث رسالة البدء بنجاح!")
-
-
-# --- المعالجة الاحترافية للمستندات والـ PDF مع العداد وصناعة الملف المترجم ---
+# --- المعالجة والترجمة البصرية الفائقة لملفات الـ PDF ---
 
 @bot.message_handler(content_types=['document'])
 def handle_documents(message):
@@ -251,97 +264,77 @@ def handle_documents(message):
     raw_file_name = message.document.file_name
     file_name = raw_file_name.lower()
     
-    sent_msg = bot.reply_to(message, "⏳ جاري بدء معالجة وتجهيز ملفك الخاص...\n▓░░░░░░░░░ 0%")
+    if not file_name.endswith('.pdf'):
+        bot.reply_to(message, "❌ عذراً، يدعم البوت حالياً الترجمة البصرية لملفات الـ PDF فقط لحفظ التنسيق ومحتوى الصور.")
+        return
+        
+    sent_msg = bot.reply_to(message, "⏳ جاري بدء سحب وتحليل ملف الـ PDF الخاص بك...\n▓░░░░░░░░░ 0%")
     
     try:
         total_messages_sent += 1
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        bot.edit_message_text("🔍 جاري فحص بنية الملف واستخراج النصوص البرمجية...\n██░░░░░░░░ 20%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        # فتح المستند الأصلي وقراءة عدد صفحاته
+        doc = fitz.open(stream=downloaded_file, filetype="pdf")
+        total_pages = len(doc)
         
-        extracted_full_text = ""
+        translated_images_list = []
         
-        if file_name.endswith('.pdf'):
-            doc = fitz.open(stream=downloaded_file, filetype="pdf")
+        # معالجة وترجمة كل صفحة بشكل مرئي مستقل
+        for page_num in range(total_pages):
+            safe_edit_message(
+                f"⚙️ جاري معالجة وترجمة الصفحة البصرية ({page_num + 1} من {total_pages}) وتعديل محتواها...\n"
+                f"██████░░░░ {int(((page_num + 1) / total_pages) * 100)}%", 
+                chat_id=message.chat.id, message_id=sent_msg.message_id
+            )
             
-            for page_num, page in enumerate(doc):
-                page_text = page.get_text()
-                if page_text and page_text.strip():
-                    extracted_full_text += f"\n--- الصفحة {page_num + 1} ---\n" + page_text
+            # تحويل صفحة الـ PDF إلى صورة بدقة عالية
+            page = doc[page_num]
+            pix = page.get_pixmap(dpi=150)
+            png_bytes = pix.tobytes("png")
             
-            if not extracted_full_text.strip():
-                bot.edit_message_text("⚙️ تبين أن الملف مصور (سكانر). جاري تشغيل معالج الصور المتقدم وقراءة الصفحات...\n████░░░░░░ 40%", chat_id=message.chat.id, message_id=sent_msg.message_id)
-                
-                for page_num, page in enumerate(doc):
-                    pix = page.get_pixmap(dpi=150)
-                    img_data = pix.tobytes("png")
-                    img = Image.open(io.BytesIO(img_data))
-                    
-                    ocr_text = pytesseract.image_to_string(img)
-                    if ocr_text and ocr_text.strip():
-                        extracted_full_text += f"\n--- الصفحة {page_num + 1} ---\n" + ocr_text
-
-        elif file_name.endswith('.txt'):
-            extracted_full_text = downloaded_file.decode('utf-8', errors='ignore')
-        else:
-            bot.edit_message_text("❌ عذراً، يدعم البوت حالياً ملفات PDF والملفات النصية (.txt) فقط.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            # إرسال صفحة المستند الممثلة كصورة إلى دالة الترجمة البصرية المسؤولة عن التغطية والتبديل
+            translated_img_bytes = translate_image_core(png_bytes)
+            
+            # تحويل البايتات المترجمة إلى كائن صورة للـ Pillow
+            pil_img = Image.open(io.BytesIO(translated_img_bytes)).convert("RGB")
+            translated_images_list.append(pil_img)
+            
+        if not translated_images_list:
+            safe_edit_message("⚠️ فشل استخراج أو ترجمة أي صفحات داخل الملف.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            doc.close()
             return
             
-        if not extracted_full_text.strip():
-            bot.edit_message_text("⚠️ لم أتمكن من استخراج أي كلمات من هذا الملف، يرجى التأكد من وضوح الصفحات.", chat_id=message.chat.id, message_id=sent_msg.message_id)
-            return
-            
-        bot.edit_message_text("🤖 جاري إرسال النصوص لمحرك الذكاء الاصطناعي وصياغة الترجمة الفصحى المحترفة...\n██████░░░░ 60%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        safe_edit_message("📂 تجميع الصفحات وإعادة بناء ملف الـ PDF المترجم النهائي...\n█████████░ 90%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        prompt = (
-            f"قم بترجمة النص التالي المستخرج من الملف إلى اللغة العربية الفصحى بدقة واحترافية متناهية، "
-            f"مع تنظيم وترتيب العناوين والنقاط الطبية أو العلمية بشكل جميل وسهل القراءة وبأسلوب أكاديمي ممتاز:\n\n{extracted_full_text}"
+        # حفظ الصور بالترتيب داخل ملف PDF جديد تماماً ومطابق للأصل هيكلياً وبصرياً
+        output_pdf_name = f"مترجم_{raw_file_name}"
+        translated_images_list[0].save(
+            output_pdf_name, 
+            save_all=True, 
+            append_images=translated_images_list[1:]
         )
         
-        chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": str(prompt)}],
-            model="llama-3.3-70b-versatile",
-            temperature=0.3
-        )
-        ai_response = chat_completion.choices[0].message.content
+        safe_edit_message("⚡ جاري رفع وإرسال الملف المترجم البصري الشامل الآن...", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        if not ai_response:
-            bot.edit_message_text("❌ عذراً، واجه الذكاء الاصطناعي مشكلة في ترجمة النص.", chat_id=message.chat.id, message_id=sent_msg.message_id)
-            return
-
-        bot.edit_message_text("📂 اكملت الترجمة! جاري صياغة وحفظ البيانات داخل ملفك المترجم الشامل...\n████████░░ 85%", chat_id=message.chat.id, message_id=sent_msg.message_id)
-        
-        output_file_name = f"مترجم_{raw_file_name}"
-        if not output_file_name.lower().endswith('.txt'):
-            output_file_name = output_file_name.rsplit('.', 1)[0] + ".txt"
-            
-        with open(output_file_name, "w", encoding="utf-8") as f:
-            f.write(f"=========================================\n")
-            f.write(f"  الملف المترجم بالكامل بواسطة بوت تويبي  \n")
-            f.write(f"  اسم الملف الأصلي: {raw_file_name}\n")
-            f.write(f"  التاريخ: {datetime.now().strftime('%Y-%m-%d')}\n")
-            f.write(f"=========================================\n\n")
-            f.write(ai_response)
-            
-        bot.edit_message_text("⚡ جاري رفع الملف المترجم النهائي وإرساله إليك الآن...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
-        
-        with open(output_file_name, "rb") as f:
+        with open(output_pdf_name, "rb") as f:
             bot.send_document(
                 message.chat.id, 
                 f, 
-                caption=f"✅ تم ترجمة ملفك **({raw_file_name})** بنجاح واحترافية تامة كملف منظم ومستقل!",
-                parse_mode="Markdown"
+                caption=f"✅ تم ترجمة وتعديل نصوص ملفك ({raw_file_name}) مرئياً بنجاح، مع المحافظة على كافة الأشكال والتصاميم الأصلية!",
+                reply_to_message_id=message.message_id
             )
             
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
-        os.remove(output_file_name)
+        doc.close()
+        os.remove(output_pdf_name)
         
     except Exception as e:
-        bot.edit_message_text(f"حدث خطأ أثناء معالجة وقراءة الملف: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        safe_edit_message(f"حدث خطأ غير متوقع أثناء المعالجة البصرية للمستند: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
 
-# --- المعالجة الاحترافية الجديدة للصور الفردية (مع العداد وإعادة الإرسال كـ كابشن مدمج) ---
+# --- المعالجة الاحترافية والترجمة البصرية الفورية للصور المنفردة ---
 
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
@@ -349,116 +342,65 @@ def handle_photos(message):
     user_id = message.from_user.id
     users_db.add(user_id)
     
-    # 1. إرسال إشعار بدء فحص الصورة بنسبة 0%
-    sent_msg = bot.reply_to(message, "⏳ جاري استقبال الصورة وبدء فحص المحتوى...\n▓░░░░░░░░░ 0%")
+    sent_msg = bot.reply_to(message, "⏳ جاري استقبال الصورة وبدء فحص العناصر الرسومية...\n▓░░░░░░░░░ 0%")
     
     try:
         total_messages_sent += 1
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # تحديث العداد إلى 40% عند تشغيل محرك قراءة النصوص الـ OCR
-        bot.edit_message_text("🔍 جاري تشغيل مستشعر الأنسجة والنصوص OCR لاستخراج الكلمات...\n████░░░░░░ 40%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        safe_edit_message("🔍 جاري عزل النصوص وتحليل خلفية التصميم وتغطيتها تلقائياً...\n██████░░░░ 60%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        image = Image.open(io.BytesIO(downloaded_file))
-        extracted_text = pytesseract.image_to_string(image)
+        # تطبيق معالجة الترجمة البصرية لاستبدال النصوص داخل الصورة مباشرة
+        translated_photo_bytes = translate_image_core(downloaded_file)
         
-        if not extracted_text.strip():
-            extracted_text = "Medical or scientific diagram/text related to fluid control or internal organs."
-            
-        # تحديث العداد إلى 80% عند معالجة الترجمة الدقيقة بالذكاء الاصطناعي
-        bot.edit_message_text("🤖 جاري ترجمة وتحليل المصطلحات بدقة عالية عبر محرك الذكاء الاصطناعي...\n████████░░ 80%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        safe_edit_message("⚡ جاري إرسال الصورة المترجمة بالكامل الآن...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        prompt_text = (
-            f"النص التالي مستخرج من صورة مستند:\n"
-            f"'{extracted_text}'\n\n"
-            f"قم بترجمته وتحليله إلى اللغة العربية الفصحى بشكل احترافي، منظم، وخالٍ تماماً من الأخطاء. رتب النقاط والمصطلحات الطبية أو العلمية بشكل ممتاز."
+        # إرسال الصورة الجديدة المترجمة مرئياً للمستخدم بشكل مباشر
+        bot.send_photo(
+            message.chat.id, 
+            io.BytesIO(translated_photo_bytes), 
+            caption="✅ تمت الترجمة المرئية بنجاح واستبدال النصوص الإنجليزية بالعربية داخل الصورة الأصلية!",
+            reply_to_message_id=message.message_id
         )
         
-        chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt_text}],
-            model="llama-3.3-70b-versatile",
-            temperature=0.3
-        )
-        ai_response = chat_completion.choices[0].message.content
-        
-        if not ai_response:
-            bot.edit_message_text("❌ لم أتمكن من صياغة ترجمة واضحة لمحتوى الصورة.", chat_id=message.chat.id, message_id=sent_msg.message_id)
-            return
-            
-        # تحديث العداد إلى 95% عند الدمج والإرسال النهائي
-        bot.edit_message_text("⚡ جاري دمج البيانات وإرسال حزمة الصورة المترجمة...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
-        
-        caption_text = f"📝 **التقرير والترجمة الاحترافية لمحتوى الصورة:**\n\n{ai_response}"
-        
-        # إذا كانت الترجمة ضمن الحد المسموح لكابشن تليجرام (1024 حرف)، نرسلها مدمجة مع الصورة مباشرة
-        if len(caption_text) <= 1024:
-            bot.send_photo(message.chat.id, message.photo[-1].file_id, caption=caption_text, parse_mode="Markdown")
-        else:
-            # إذا كانت طويلة جداً، نرسل الصورة بكابشن تعريفي متبوعة بالتقرير النصي كاملاً بالأسفل مباشرة
-            bot.send_photo(message.chat.id, message.photo[-1].file_id, caption="📝 **تمت الترجمة بنجاح!** (التقرير الكامل في الرسالة أدناه نظراً لطوله)", parse_mode="Markdown")
-            bot.send_message(message.chat.id, caption_text, parse_mode="Markdown")
-            
-        # حذف رسالة العداد المؤقتة للحفاظ على مظهر الشات فخم ونظيف
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         
     except Exception as e:
-        bot.edit_message_text(f"حدث خطأ أثناء معالجة الصورة: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        safe_edit_message(f"حدث خطأ أثناء معالجة وترجمة الصورة: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
 
-# --- محادثات الذكاء الاصطناعي العامة المحدثة (تفكير عميق، دقة أكاديمية، دون أخطاء) ---
+# --- محادثات الذكاء الاصطناعي العامة ---
 
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-    user_message = message.text
     
     try:
         sent_msg = bot.reply_to(message, "جاري التفكير والرد...")
         total_messages_sent += 1
         
-        # حساب التوقيت المحلي الفعلي في العراق بدقة
-        iraq_now = datetime.utcnow() + timedelta(hours=3)
-        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-        
-        chosen_style = user_styles.get(user_id, "ودّي وطبيعي كصديق مقرب")
-        
-        # توجيهات الـ Deep Thinking لفرض التفكير المتسلسل والدقة المتناهية الخالية من العيوب البرمجية أو اللغوية
         system_content = (
-            f"أنت نظام ذكاء اصطناعي متطور جداً يعمل بتقنية التفكير العميق والمنطقي (Deep Thinking & Logical Verification Engine). "
-            f"اسمك تويبي (Tweby) ومطورك الخاص هو أحمد ومعرفه الرسمي والوحيد في تليجرام هو {ADMIN_USERNAME}. "
-            f"الأسلوب المحدد للتحدث مع هذا المستخدم هو: {chosen_style}. "
-            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. "
-            f"\n⚠️ قواعد إلزامية صارمة لجميع ردودك:\n"
-            f"1. حلل وفكك سؤال المستخدم في ذاكرتك بعمق وتفكير متسلسل (Step-by-step reasoning) قبل كتابة أي حرف.\n"
-            f"2. يجب أن تكون جميع أجوبتك حتمية، دقيقة علمياً ومنطقياً، مفهومة تماماً، وخالية 100% من الأخطاء أو التخمينات السطحية الهشة.\n"
-            f"3. إذا كان السؤال رياضياً، علمياً، أو برمجياً، قم بمراجعته وتدقيقه لتعطي زبدة الكلام والناتج اليقيني الذي لا يحتمل الشك.\n"
-            f"4. لا تقدم معلومات عامة مبتذلة، بل ركز على العمق والإفادة التامة وبأسلوب يناسب خيارات المستخدم."
+            f"أنت نظام ذكاء اصطناعي متطور يحمل اسم تويبي (Tweby) ومطورك هو أحمد ({ADMIN_USERNAME}). "
+            f"أجوبتك دقيقة جداً ومباشرة ومبنية على التفكير المنطقي السليم الفصيح وبدون نجمات مفرطة تشوه العرض."
         )
         
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_content},
-                {"role": "user", "content": str(user_message)}
+                {"role": "user", "content": str(message.text)}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.5  # تقليل الـ temperature يضمن إجابات أكثر استقراراً ودقة وبعداً عن العشوائية
+            temperature=0.4
         )
         ai_response = chat_completion.choices[0].message.content
         
-        bot.edit_message_text(ai_response if ai_response else "تفضل، أنا جاهز لأي استفسار دقيق وعميق.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
-        
-        # إرسال ملصق تفاعلي عشوائي بنسبة 15% لإضفاء الحيوية على المحادثة
-        if cached_stickers and random.random() < 0.15:
-            try:
-                bot.send_sticker(message.chat.id, random.choice(cached_stickers))
-            except:
-                pass
+        bot.edit_message_text(ai_response if ai_response else "تفضل، أنا معك.", chat_id=message.chat.id, message_id=sent_msg.message_id)
                 
     except Exception as e:
-        bot.reply_to(message, f"واجهت مشكلة بسيطة في معالجة طلبك: {str(e)}")
+        bot.reply_to(message, f"خطأ بسيط في معالجة النص: {str(e)}")
 
 
 # --- إعدادات سرفرة الـ Webhook عبر Flask على Railway ---
@@ -470,26 +412,22 @@ def redirect_message():
     bot.process_new_updates([update])
     return "!", 200
 
-
 @server.route("/")
 def index():
-    return "Tweby Bot is running smoothly on Docker container via Webhook with Deep Thinking active!", 200
-
+    return "Tweby Overlay Translation Bot is running smoothly on Railway!", 200
 
 if __name__ == "__main__":
-    print("جاري تشغيل البوت وتحميل البيانات المسبقة وتفعيل التفكير العميق...")
+    print("جاري تشغيل بوت الترجمة المرئية المطور...")
     set_bot_commands()
     load_sticker_packs()
+    ensure_arabic_font()
     
     try:
         bot.remove_webhook()
-        bot.set_webhook(
-            url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}",
-            allowed_updates=["message", "callback_query", "document", "photo"]
-        )
-        print("تم ربط الـ Webhook بنجاح تام بالسيرفر!")
+        bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}")
+        print("Webhook Connected Successfully!")
     except Exception as e:
-        print(f"فشل إعداد الـ Webhook: {e}")
+        print(f"Webhook connection error: {e}")
         
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
