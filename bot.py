@@ -23,13 +23,14 @@ ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-# روابط إنتاجية عالمية (لا تحظر السيرفرات وتضمن تحميل الخط العربي كاملاً 100%)
+# روابط مباشرة ومستقرة للخطوط
 FONT_URLS = [
     "https://cdn.jsdelivr.net/npm/@fontsource/amiri/files/amiri-arabic-400-normal.ttf",
     "https://fonts.gstatic.com/s/amiri/v24/J7aRDI1XBwQ6E_v67bL-vA.ttf",
     "https://cdn.jsdelivr.net/npm/@fontsource/cairo/files/cairo-arabic-400-normal.ttf"
 ]
-FONT_PATH = "Amiri-Regular.ttf"
+# تغيير المسار إلى /tmp/ لضمان تخطي قيود الصلاحيات على Railway تماماً
+FONT_PATH = "/tmp/Amiri-Regular.ttf"
 
 # إعدادات الملصقات
 STICKER_PACK_NAMES = ["Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"]
@@ -50,7 +51,7 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
-# تهيئة معالج النصوص العربية بإعدادات صارمة لضمان اتصال الحروف ومنع الانفصال
+# تهيئة معالج النصوص العربية
 reshaper_config = {
     'delete_harakat': True,
     'support_default_harakat': True,
@@ -61,7 +62,7 @@ arabic_reshaper_instance = arabic_reshaper.ArabicReshaper(configuration=reshaper
 
 
 def ensure_arabic_font():
-    """تحميل الخط العربي من خوادم مفتوحة ومستقرة مع رفع حجم التحقق لضمان سلامة الملف"""
+    """تحميل الخط وحفظه في مسار النظام الآمن /tmp المتجاوز لجميع قيود الحظر والصلاحيات"""
     if not os.path.exists(FONT_PATH) or os.path.getsize(FONT_PATH) < 20000:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -72,7 +73,7 @@ def ensure_arabic_font():
                 if r.status_code == 200 and len(r.content) > 20000:
                     with open(FONT_PATH, "wb") as f:
                         f.write(r.content)
-                    print("✅ تم تأمين وتحميل الخط العربي بنجاح من خادم مستقر.")
+                    print(f"✅ تم تأمين وحفظ الخط بنجاح في المسار الآمن: {FONT_PATH}")
                     return True
             except Exception as e:
                 print(f"فشل جلب الخط من {url}: {e}")
@@ -94,7 +95,7 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """معالجة الأسطر وترجمتها مع فرض دمج وتصحيح اتجاه الحروف العربية"""
+    """معالجة الأسطر وترجمتها مع فرض استخدام الخط المؤقّت وضبط حجمه هندسياً"""
     font_available = ensure_arabic_font()
     
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -129,10 +130,11 @@ def translate_image_core(image_bytes):
         rights = [data['left'][idx] + data['width'][idx] for idx in indices]
         bottoms = [data['top'][idx] + data['height'][idx] for idx in indices]
         
-        x1, y1 = max(0, min(lefts) - 4), max(0, min(tops) - 3)
-        x2, y2 = min(img.width, max(rights) + 4), min(img.height, max(bottoms) + 3)
+        # توسيع مساحة المسح قليلاً لضمان تغطية الحروف بالكامل
+        x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
+        x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
         
-        prompt = f"Translate the following medical/technical English text into professional Arabic. Return ONLY the translated Arabic text, no explanations, no english words, no quotes:\n{full_line_text}"
+        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -156,10 +158,10 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح النص القديم بالاعتماد الكامل على لون الخلفية النقي
+        # مسح النص الإنجليزي القديم تماماً بلون الخلفية
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
-        # إعادة تشكيل الحروف وتصحيح اتجاه النص العربي من اليمين إلى اليسار
+        # تشكيل الحروف وإصلاح اتجاه النصوص العربية
         try:
             reshaped = arabic_reshaper_instance.reshape(arabic_text)
             bidi_text = get_display(reshaped)
@@ -167,8 +169,9 @@ def translate_image_core(image_bytes):
             bidi_text = arabic_text
             
         line_h = y2 - y1
-        font_size = max(14, int(line_h * 0.85))
+        font_size = max(16, int(line_h * 0.85))
         
+        # استدعاء الخط المستقر من المسار الفرعي المفتوح الصلاحيات
         if font_available:
             try:
                 font = ImageFont.truetype(FONT_PATH, font_size)
@@ -183,12 +186,12 @@ def translate_image_core(image_bytes):
             try:
                 tw, th = font.getsize(bidi_text)
             except:
-                tw, th = len(bidi_text) * 7, font_size
+                tw, th = len(bidi_text) * 8, font_size
             
         tx = x1 + (x2 - x1 - tw) // 2
         ty = y1 + (y2 - y1 - th) // 2
         
-        # طباعة النص العربي المتصل والمصحح هندسياً
+        # طباعة النص العربي المتصل بالكامل وبالمكان الصحيح
         draw.text((tx, ty), bidi_text, fill=text_color, font=font)
         
     out_buf = io.BytesIO()
@@ -280,7 +283,7 @@ def handle_documents(message):
             
         safe_edit_message("📂 تجميع وإعادة صياغة ملف الـ PDF المترجم النظيف والنهائي...\n█████████░ 90%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        output_pdf_name = f"مترجم_{raw_file_name}"
+        output_pdf_name = f"/tmp/translated_{raw_file_name}"
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         safe_edit_message("⚡ جاري رفع وإرسال النسخة المترجمة الهيكلية الجديدة...", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
@@ -355,7 +358,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby CDN Font Fix is running smoothly on Railway!", 200
+    return "Tweby Safe Temporary Font Path Fix is running smoothly on Railway!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل النسخة المستقرة لترجمة السطور...")
