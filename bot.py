@@ -52,7 +52,7 @@ def load_sticker_packs():
   cached_stickers = all_stickers
 
 
-async def set_bot_commands(application_or_bot):
+def set_bot_commands():
   """تعيين قائمة الأوامر التلقائية التي تظهر في زر القائمة (Menu) للجميع"""
   commands = [
       types.BotCommand("start", "بداية التشغيل والقائمة الرئيسية"),
@@ -74,16 +74,18 @@ def send_welcome(message):
   user_name = user.first_name if user.first_name else "مستخدم"
   user_username = f"@{user.username}" if user.username else "بدون معرف"
 
-  # الأزرار التفاعلية للرسالة الترحيبية
+  # الأزرار التفاعلية للرسالة الترحيبية (تم تصحيح الأقواس هنا)
   markup = types.InlineKeyboardMarkup(row_width=1)
   markup.add(
       types.InlineKeyboardButton(
           "📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"
-      ),
+      )
+  )
+  markup.add(
       types.InlineKeyboardButton(
           "⚙️ طريقة تعامل البوت معي", callback_data="bot_style"
-      ),
-  ]
+      )
+  )
 
   # إذا كان مطوراً، نضيف زر لوحة التحكم أيضاً
   if user_id == ADMIN_CHAT_ID or user.username == "TWEBii":
@@ -147,13 +149,19 @@ def info_command(message):
 def style_command(message):
   markup = types.InlineKeyboardMarkup(row_width=1)
   markup.add(
-      types.InlineKeyboardButton("🤵 رسمي ومحترف", callback_data="style_formal"),
-      types.InlineKeyboardButton("😄 مضحك وفكاهي", callback_data="style_funny"),
-      types.InlineKeyboardButton("🤝 ودي وقريب", callback_data="style_friendly"),
+      types.InlineKeyboardButton("🤵 رسمي ومحترف", callback_data="style_formal")
+  )
+  markup.add(
+      types.InlineKeyboardButton("😄 مضحك وفكاهي", callback_data="style_funny")
+  )
+  markup.add(
+      types.InlineKeyboardButton("🤝 ودي وقريب", callback_data="style_friendly")
+  )
+  markup.add(
       types.InlineKeyboardButton(
           "🔙 القائمة الرئيسية", callback_data="back_home"
-      ),
-  ]
+      )
+  )
 
   text = (
       "🎭 **اختر كيف تريد أن أتحدث معك:**\n"
@@ -196,6 +204,8 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
       types.InlineKeyboardButton(
           "✏️ تعديل رسالة البدء", callback_data="edit_start_msg"
       ),
+  )
+  markup.add(
       types.InlineKeyboardButton(
           "🔄 تحديث الإحصائيات", callback_data="refresh_panel"
       ),
@@ -227,7 +237,6 @@ def callback_handler(call):
   user_id = call.from_user.id
   data = call.data
 
-  # التعامل مع أزرار الأسلوب والمعلومات لجميع المستخدمين
   if data == "my_info":
     text = (
         "📌 **معلومات المطور والقنوات:**\n\n"
@@ -268,14 +277,20 @@ def callback_handler(call):
     markup.add(
         types.InlineKeyboardButton(
             "🤵 رسمي ومحترف", callback_data="style_formal"
-        ),
+        )
+    )
+    markup.add(
         types.InlineKeyboardButton(
             "😄 مضحك وفكاهي", callback_data="style_funny"
-        ),
-        types.InlineKeyboardButton("🤝 ودي وقريب", callback_data="style_friendly"),
+        )
+    )
+    markup.add(
+        types.InlineKeyboardButton("🤝 ودي وقريب", callback_data="style_friendly")
+    )
+    markup.add(
         types.InlineKeyboardButton(
             "🔙 القائمة الرئيسية", callback_data="back_home"
-        ),
+        )
     )
     text = (
         "🎭 **اختر كيف تريد أن أتحدث معك:**\n"
@@ -332,10 +347,12 @@ def callback_handler(call):
     markup.add(
         types.InlineKeyboardButton(
             "📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"
-        ),
+        )
+    )
+    markup.add(
         types.InlineKeyboardButton(
             "⚙️ طريقة تعامل البوت معي", callback_data="bot_style"
-        ),
+        )
     )
     if user_id == ADMIN_CHAT_ID or call.from_user.username == "TWEBii":
       markup.add(
@@ -355,7 +372,6 @@ def callback_handler(call):
     bot.answer_callback_query(call.id)
     return
 
-  # التحقق من صلاحيات المطور لبقية الأزرار الإدارية
   if user_id != ADMIN_CHAT_ID and call.from_user.username != "TWEBii":
     bot.answer_callback_query(call.id, "هذه القائمة للمطور.", show_alert=True)
     return
@@ -462,7 +478,6 @@ def handle_business_message(message):
     iraq_now = datetime.utcnow() + timedelta(hours=3)
     current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
 
-    # تخصيص الأسلوب بناءً على اختيار المستخدم المخزن
     current_style = user_styles.get(user_id, "normal")
     style_instructions = {
         "formal": (
@@ -561,7 +576,6 @@ def chat_with_ai(message):
     iraq_now = datetime.utcnow() + timedelta(hours=3)
     current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
 
-    # تخصيص الأسلوب بناءً على اختيار المستخدم المخزن
     current_style = user_styles.get(user_id, "normal")
     style_instructions = {
         "formal": (
@@ -639,7 +653,7 @@ def index():
 if __name__ == "__main__":
   print("Bot is starting and setting up Webhook automatically...")
   load_sticker_packs()
-  set_bot_commands(bot)
+  set_bot_commands()
 
   try:
     bot.remove_webhook()
