@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🚀 تم تحديث دالة تجميع النصوص ومنع التداخلات العشوائية بالكامل لضمان ترجمة نظيفة ومرتبة!\n"
+    "🚀 تم ضبط الصناديق لتكون مستقلة تماماً بدون أي تداخلات عشوائية!\n"
     "أرسل صورتك الآن!"
 )
 
@@ -90,7 +90,6 @@ def translate_image_core(image_bytes):
         return image_bytes
         
     n_boxes = len(data['text'])
-    boxes = []
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
@@ -101,36 +100,18 @@ def translate_image_core(image_bytes):
         except:
             conf = 50
             
-        if conf < 20:
+        if conf < 25:
             continue
             
-        x = data['left'][i] // 3
-        y = data['top'][i] // 3
-        bw = data['width'][i] // 3
-        bh = data['height'][i] // 3
+        x1 = data['left'][i] // 3
+        y1 = data['top'][i] // 3
+        x2 = x1 + (data['width'][i] // 3)
+        y2 = y1 + (data['height'][i] // 3)
         
-        boxes.append((x, y, x + bw, y + bh, text))
-        
-    merged_lines = []
-    for box in sorted(boxes, key=lambda b: (b[1] // 15, b[0])):
-        x1, y1, x2, y2, text = box
-        if not merged_lines:
-            merged_lines.append([x1, y1, x2, y2, [text]])
-        else:
-            last = merged_lines[-1]
-            if abs(y1 - last[1]) < 18 and x1 >= last[0]:
-                last[2] = max(last[2], x2)
-                last[3] = max(last[3], y2)
-                last[4].append(text)
-            else:
-                merged_lines.append([x1, y1, x2, y2, [text]])
-                
-    for (x1, y1, x2, y2, words) in merged_lines:
-        full_line_text = " ".join(words).strip()
-        if len(full_line_text) < 2 or (x2 - x1) < 10 or (y2 - y1) < 8:
+        if (x2 - x1) < 8 or (y2 - y1) < 6:
             continue
             
-        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
+        prompt = f"Translate the following English word/phrase into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -154,16 +135,16 @@ def translate_image_core(image_bytes):
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         box_h = y2 - y1
-        font_size = min(15, max(10, int(box_h * 0.65)))
+        font_size = min(14, max(9, int(box_h * 0.70)))
         font = get_working_font(font_size)
             
         try:
             tw, th = draw.textbbox((0, 0), arabic_text, font=font)[2:]
         except:
-            tw, th = len(arabic_text) * 5, font_size
+            tw, th = len(arabic_text) * 4, font_size
             
-        tx = x1 + max(2, (x2 - x1 - tw) // 2)
-        ty = y1 + max(2, (y2 - y1 - th) // 2)
+        tx = x1 + max(1, (x2 - x1 - tw) // 2)
+        ty = y1 + max(1, (y2 - y1 - th) // 2)
         
         draw.text((tx, ty), arabic_text, fill=(255, 255, 255), font=font)
         
@@ -257,7 +238,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح وبدون أي تداخلات!",
+            caption="✅ تمت الترجمة بنجاح وبصناديق منفصلة بدقة!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -294,7 +275,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Perfect Layout Running Smoothly!", 200
+    return "Tweby Clean Boxes Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
