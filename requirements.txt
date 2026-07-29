@@ -5,3 +5,7 @@ pypdf
 pytesseract
 Pillow
 pymupdf
+arabic-reshaper
+python-bidi
+numpy
+requests
