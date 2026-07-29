@@ -673,3 +673,80 @@ if __name__ == "__main__":
 
   port = int(os.environ.get("PORT", 8080))
   server.run(host="0.0.0.0", port=port)
+import io
+from pypdf import PdfReader
+
+
+@bot.message_handler(content_types=["document"])
+def handle_documents(message):
+  global total_messages_sent
+  user_id = message.from_user.id
+  users_db.add(user_id)
+
+  file_name = message.document.file_name
+  # التأكد أن الملف هو PDF أو ملف نصي
+  if not (file_name.endswith(".pdf") or file_name.endswith(".txt")):
+    bot.reply_to(
+        message, "عذراً، أستطيع قراءة وترجمة ملفات الـ PDF أو الملفات النصية فقط."
+    )
+    return
+
+  sent_msg = bot.reply_to(message, "جاري تحميل الملف وقراءته لترجمته...")
+
+  try:
+    total_messages_sent += 1
+    file_info = bot.get_file(message.document.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    extracted_text = ""
+    if file_name.endswith(".pdf"):
+      with io.BytesIO(downloaded_file) as open_pdf:
+        reader = PdfReader(open_pdf)
+        for page in reader.pages:
+          text = page.extract_text()
+          if text:
+            extracted_text += text + "\n"
+    else:
+      extracted_text = downloaded_file.decode("utf-8", errors="ignore")
+
+    if not extracted_text.strip():
+      bot.edit_message_text(
+          "عذراً، لم أتمكن من استخراج أي نص من هذا الملف (قد يكون عبارة عن"
+          " صور مسحوبة ضوئياً).",
+          chat_id=message.chat.id,
+          message_id=sent_msg.message_id,
+      )
+      return
+
+    # اقتصار النص على الحجم المناسب للنموذج إذا كان طويلاً جداً
+    if len(extracted_text) > 12000:
+      extracted_text = (
+          extracted_text[:12000]
+          + "\n\n[ملاحظة: تم اقتطاع جزء من الملف لكونه طويلاً جداً]"
+      )
+
+    prompt = (
+        f"قم بترجمة النص التالي المأخوذ من ملف إلى اللغة العربية الفصحى بدقة"
+        f" ووضوح، مع تنظيم النص وترتيبه:\n\n{extracted_text}"
+    )
+
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.3-70b-versatile",
+        temperature=0.3,
+    )
+    ai_response = chat_completion.choices[0].message.content
+
+    bot.edit_message_text(
+        ai_response if ai_response else "عذراً، حدث خطأ أثناء الترجمة.",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+        parse_mode="Markdown",
+    )
+
+  except Exception as e:
+    bot.edit_message_text(
+        f"حدث خطأ أثناء معالجة الملف: {str(e)}",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+    
