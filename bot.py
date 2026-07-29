@@ -1,11 +1,12 @@
+import base64
 import io
 import logging
 import os
 import random
 from datetime import datetime, timedelta
+import fitz  # PyMuPDF لقراءة وتحويل صفحات الـ فيديوهات والـ PDF والصور
 from flask import Flask, request
 from groq import Groq
-from pypdf import PdfReader
 import telebot
 from telebot import types
 
@@ -22,17 +23,18 @@ cached_stickers = []
 users_db = set()
 total_messages_sent = 0
 
-# تخزين أسلوب التحدث المخصص لكل مستخدم
 user_styles = {}
 
 custom_start_message = (
-    "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي هنا على تليجرام.\n\n"
-    "🛠 **معلومات المطور والقنوات:**\n"
+    "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي للترجمة وقراءة الملفات والصور.\n\n"
+    "🛠 **ما يمكنني فعله لك:**\n"
+    "• ترجمة ملفات الـ PDF (نصوص أو تصاميم وصور داخلية)\n"
+    "• ترجمة الصور الفردية بدقة عالية بالذكاء الاصطناعي\n\n"
     "• المطور: أحمد (@TWEBii)\n"
     "• القنوات الرسمية:\n"
     "  - @lTelegramWeb\n"
     "  - @TWEBiii\n\n"
-    "اسألني عن أي شي وتحت أمرك."
+    "اختر الخدمة المطلوبة من الأزرار بالأسفل أو أرسل ملفك مباشرة!"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -48,7 +50,6 @@ def load_sticker_packs():
       pack = bot.get_sticker_set(pack_name)
       stickers = [sticker.file_id for sticker in pack.stickers]
       all_stickers.extend(stickers)
-      print(f"تم تحميل {len(stickers)} ملصقاً من الحزمة: {pack_name}")
     except Exception as e:
       print(f"فشل تحميل الحزمة {pack_name}: {e}")
   cached_stickers = all_stickers
@@ -74,7 +75,16 @@ def send_welcome(message):
   user_name = user.first_name if user.first_name else "مستخدم"
   user_username = f"@{user.username}" if user.username else "بدون معرف"
 
-  markup = types.InlineKeyboardMarkup(row_width=1)
+  # إنشاء أزرار شفافة مخصصة (خانة ترجمة الصور وخانة ترجمة الملفات)
+  markup = types.InlineKeyboardMarkup(row_width=2)
+  markup.add(
+      types.InlineKeyboardButton(
+          "🖼 ترجمة الصور", callback_data="translate_photos_info"
+      ),
+      types.InlineKeyboardButton(
+          "📁 ترجمة الملفات", callback_data="translate_files_info"
+      ),
+  )
   markup.add(
       types.InlineKeyboardButton(
           "📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"
@@ -168,74 +178,29 @@ def style_command(message):
   bot.reply_to(message, text, parse_mode="Markdown", reply_markup=markup)
 
 
-@bot.message_handler(commands=["admin"])
-def admin_command(message):
-  if (
-      message.from_user.id == ADMIN_CHAT_ID
-      or message.from_user.username == "TWEBii"
-  ):
-    show_admin_panel(message.chat.id, message.message_id, is_new=False)
-  else:
-    bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور. ❌")
-
-
-def show_admin_panel(chat_id, msg_id=None, is_new=True):
-  global total_messages_sent
-  iraq_time = datetime.utcnow() + timedelta(hours=3)
-  today_date = iraq_time.strftime("%Y-%m-%d")
-
-  panel_text = (
-      f"🤖 **لوحة التحكم الإدارية للبوت**\n"
-      f"—————————————\n"
-      f"📊 **إحصائيات اليوم:**\n"
-      f"👥 إجمالي المستخدمين: {len(users_db)}\n"
-      f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-      f"⚡️ حالة البوت: يعمل بنظام Webhook (Groq API)\n"
-      f"📅 التاريخ: {today_date}"
-  )
-
-  markup = types.InlineKeyboardMarkup(row_width=2)
-  markup.add(
-      types.InlineKeyboardButton(
-          "📢 إرسال إذاعة", callback_data="broadcast_start"
-      ),
-      types.InlineKeyboardButton(
-          "✏️ تعديل رسالة البدء", callback_data="edit_start_msg"
-      ),
-  )
-  markup.add(
-      types.InlineKeyboardButton(
-          "🔄 تحديث الإحصائيات", callback_data="refresh_panel"
-      ),
-      types.InlineKeyboardButton("❌ إغلاق القائمة", callback_data="close_panel"),
-  )
-
-  if is_new:
-    bot.send_message(
-        chat_id, panel_text, parse_mode="Markdown", reply_markup=markup
-    )
-  else:
-    try:
-      bot.edit_message_text(
-          panel_text,
-          chat_id=chat_id,
-          message_id=msg_id,
-          parse_mode="Markdown",
-          reply_markup=markup,
-      )
-    except:
-      bot.send_message(
-          chat_id, panel_text, parse_mode="Markdown", reply_markup=markup
-      )
-
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
   global users_db
   user_id = call.from_user.id
   data = call.data
 
-  if data == "my_info":
+  if data == "translate_photos_info":
+    bot.answer_callback_query(
+        call.id,
+        "فقط قم بإرسال أي صورة تحتوي على نصوص وسأقوم بترجمتها فوراً!",
+        show_alert=True,
+    )
+    return
+
+  elif data == "translate_files_info":
+    bot.answer_callback_query(
+        call.id,
+        "فقط قم بإرسال ملف PDF أو ملف نصي وسأقوم بقراءته وترجمته بالكامل!",
+        show_alert=True,
+    )
+    return
+
+  elif data == "my_info":
     text = (
         "📌 **معلومات المطور والقنوات:**\n\n"
         "👤 **المطور:** أحمد (@TWEBii)\n"
@@ -341,7 +306,15 @@ def callback_handler(call):
 
   elif data == "back_home":
     user_name = call.from_user.first_name or "مستخدم"
-    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton(
+            "🖼 ترجمة الصور", callback_data="translate_photos_info"
+        ),
+        types.InlineKeyboardButton(
+            "📁 ترجمة الملفات", callback_data="translate_files_info"
+        ),
+    )
     markup.add(
         types.InlineKeyboardButton(
             "📢 معلوماتي (قنواتي والحساب)", callback_data="my_info"
@@ -397,6 +370,56 @@ def callback_handler(call):
     bot.register_next_step_handler(msg, save_new_start_message)
 
 
+def show_admin_panel(chat_id, msg_id=None, is_new=True):
+  global total_messages_sent
+  iraq_time = datetime.utcnow() + timedelta(hours=3)
+  today_date = iraq_time.strftime("%Y-%m-%d")
+
+  panel_text = (
+      f"🤖 **لوحة التحكم الإدارية للبوت**\n"
+      f"—————————————\n"
+      f"📊 **إحصائيات اليوم:**\n"
+      f"👥 إجمالي المستخدمين: {len(users_db)}\n"
+      f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
+      f"⚡️ حالة البوت: يعمل بنظام Webhook (Groq API)\n"
+      f"📅 التاريخ: {today_date}"
+  )
+
+  markup = types.InlineKeyboardMarkup(row_width=2)
+  markup.add(
+      types.InlineKeyboardButton(
+          "📢 إرسال إذاعة", callback_data="broadcast_start"
+      ),
+      types.InlineKeyboardButton(
+          "✏️ تعديل رسالة البدء", callback_data="edit_start_msg"
+      ),
+  )
+  markup.add(
+      types.InlineKeyboardButton(
+          "🔄 تحديث الإحصائيات", callback_data="refresh_panel"
+      ),
+      types.InlineKeyboardButton("❌ إغلاق القائمة", callback_data="close_panel"),
+  )
+
+  if is_new:
+    bot.send_message(
+        chat_id, panel_text, parse_mode="Markdown", reply_markup=markup
+    )
+  else:
+    try:
+      bot.edit_message_text(
+          panel_text,
+          chat_id=chat_id,
+          message_id=msg_id,
+          parse_mode="Markdown",
+          reply_markup=markup,
+      )
+    except:
+      bot.send_message(
+          chat_id, panel_text, parse_mode="Markdown", reply_markup=markup
+      )
+
+
 def save_new_start_message(message):
   global custom_start_message
   if (
@@ -436,24 +459,16 @@ def execute_broadcast(message):
   )
 
 
-# --- الدالة الذكية والمحدثة لمعالجة وقراءة وترجمة ملفات الـ PDF فوراً ---
+# --- الدالة الشاملة لقراءة وترجمة جميع أنواع الملفات (PDF / نصية / تصاميم وصور داخلية) ---
 @bot.message_handler(content_types=["document"])
 def handle_documents(message):
   global total_messages_sent
   user_id = message.from_user.id
   users_db.add(user_id)
 
-  file_name = message.document.file_name
-  if not (file_name.endswith(".pdf") or file_name.endswith(".txt")):
-    bot.reply_to(
-        message,
-        "عذراً يا أحمد، أستطيع قراءة وترجمة ملفات الـ PDF أو الملفات النصية"
-        " فقط.",
-    )
-    return
-
+  file_name = message.document.file_name.lower()
   sent_msg = bot.reply_to(
-      message, "⚡ جاري تحميل الملف وقراءته وترجمته بالذكاء الاصطناعي..."
+      message, "⚡ جاري فحص الملف وقراءة النصوص والصور بداخله للترجمة..."
   )
 
   try:
@@ -461,35 +476,75 @@ def handle_documents(message):
     file_info = bot.get_file(message.document.file_id)
     downloaded_file = bot.download_file(file_info.file_path)
 
-    extracted_text = ""
-    if file_name.endswith(".pdf"):
-      with io.BytesIO(downloaded_file) as open_pdf:
-        reader = PdfReader(open_pdf)
-        for page in reader.pages:
-          text = page.extract_text()
-          if text:
-            extracted_text += text + "\n"
-    else:
-      extracted_text = downloaded_file.decode("utf-8", errors="ignore")
+    extracted_full_text = ""
 
-    if not extracted_text.strip():
+    if file_name.endswith(".pdf"):
+      doc = fitz.open(stream=downloaded_file, filetype="pdf")
+      for page_num in range(
+          min(len(doc), 10)
+      ):  # فحص أول 10 صفحات كحد أقصى لسرعة الاستجابة
+        page = doc[page_num]
+        page_text = page.get_text()
+
+        if page_text.strip():
+          extracted_full_text += (
+              f"\n--- الصفحة {page_num + 1} ---\n" + page_text
+          )
+        else:
+          # إذا كانت الصفحة عبارة عن تصميم أو صورة داخل الـ PDF، نفحصها بنموذج الرؤية
+          pix = page.get_pixmap(dpi=150)
+          img_bytes = pix.tobytes("jpeg")
+          base64_image = base64.b64encode(img_bytes).decode("utf-8")
+
+          vision_completion = client.chat.completions.create(
+              model="llama-3.2-11b-vision-preview",
+              messages=[{
+                  "role": "user",
+                  "content": [
+                      {
+                          "type": "text",
+                          "text": (
+                              "استخرج جميع النصوص الإنجليزية الموجودة في هذه"
+                              " الصورة أو التصميم بدقة تامة."
+                          ),
+                      },
+                      {
+                          "type": "image_url",
+                          "image_url": {
+                              "url": f"data:image/jpeg;base64,{base64_image}"
+                          },
+                      },
+                  ],
+              }],
+              temperature=0.2,
+              max_tokens=1024,
+          )
+          extracted_full_text += (
+              f"\n--- الصفحة {page_num + 1} (تصميم/صورة) ---\n"
+              + vision_completion.choices[0].message.content
+          )
+
+    elif file_name.endswith(".txt"):
+      extracted_full_text = downloaded_file.decode("utf-8", errors="ignore")
+    else:
       bot.edit_message_text(
-          "عذراً، لم أتمكن من استخراج أي نص من هذا الملف (قد يكون عبارة عن"
-          " صور مسحوبة ضوئياً).",
+          "عذراً، أستطيع التعامل مع ملفات PDF والملفات النصية والرسومية فقط.",
           chat_id=message.chat.id,
           message_id=sent_msg.message_id,
       )
       return
 
-    if len(extracted_text) > 12000:
-      extracted_text = (
-          extracted_text[:12000]
-          + "\n\n[ملاحظة: تم اقتطاع جزء من الملف لكونه طويلاً جداً]"
+    if not extracted_full_text.strip():
+      bot.edit_message_text(
+          "عذراً، لم أتمكن من العثور على أي نص داخل هذا الملف.",
+          chat_id=message.chat.id,
+          message_id=sent_msg.message_id,
       )
+      return
 
     prompt = (
-        f"قم بترجمة النص التالي المأخوذ من ملف إلى اللغة العربية الفصحى الطبية"
-        f" والعلمية بدقة ووضوح، مع تنظيم النص وترتيبه بنقاط أو فقرات مفهومة:\n\n{extracted_text}"
+        f"قم بترجمة النص التالي المستخرج من الملف إلى اللغة العربية الفصحى"
+        f" بدقة واحترافية، مع تنسيق وترتيب النقاط الطبية أو العلمية:\n\n{extracted_full_text}"
     )
 
     chat_completion = client.chat.completions.create(
@@ -514,10 +569,58 @@ def handle_documents(message):
     )
 
 
+# --- دالة مخصصة لترجمة الصور المفردة عند إرسالها مباشرة ---
 @bot.message_handler(content_types=["photo"])
 def handle_photos(message):
-  if message.chat.type == "private":
-    bot.reply_to(message, "وصلتني الصورة. يفضل مراسلتي بالكتابة.")
+  global total_messages_sent
+  user_id = message.from_user.id
+  users_db.add(user_id)
+
+  sent_msg = bot.reply_to(message, "🔍 جاري قراءة الصورة وترجمة ما فيها...")
+
+  try:
+    total_messages_sent += 1
+    file_info = bot.get_file(message.photo[-1].file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+    base64_image = base64.b64encode(downloaded_file).decode("utf-8")
+
+    vision_completion = client.chat.completions.create(
+        model="llama-3.2-11b-vision-preview",
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "قم بقراءة جميع النصوص الإنجليزية في هذه الصورة وترجمتها"
+                        " فوراً إلى اللغة العربية الفصحى بدقة ووضوح."
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}"
+                    },
+                },
+            ],
+        }],
+        temperature=0.2,
+        max_tokens=1024,
+    )
+    ai_response = vision_completion.choices[0].message.content
+
+    bot.edit_message_text(
+        ai_response if ai_response else "لم أتمكن من العثور على نص للترجمة.",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+        parse_mode="Markdown",
+    )
+  except Exception as e:
+    bot.edit_message_text(
+        f"حدث خطأ أثناء ترجمة الصورة: {str(e)}",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+    )
 
 
 @bot.message_handler(content_types=["sticker"])
@@ -537,17 +640,6 @@ def handle_business_message(message):
   user_message = message.text
   if not user_message:
     return
-
-  if "ملصق" in user_message and cached_stickers:
-    try:
-      bot.send_sticker(
-          message.chat.id,
-          random.choice(cached_stickers),
-          reply_to_message_id=message.message_id,
-      )
-      return
-    except Exception as e:
-      print(f"خطأ في إرسال الملصق المباشر للأعمال: {e}")
 
   try:
     total_messages_sent += 1
@@ -571,13 +663,9 @@ def handle_business_message(message):
         f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد ومعرفه الرسمي هو"
         f" {ADMIN_USERNAME}. اسمك تويبي (Tweby). أسلوبك في الرد الحالي هو: {chosen_style_prompt}،"
         f" واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. الوقت والتاريخ"
-        f" الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو"
-        f" التاريخ أو السنة، أجب بدقة. إذا طلب المستخدم ملصقاً أو كان السياق"
-        f" يتطلب ذلك، ولديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1},"
-        f" فيمكنك تضمين [STICKER:رقم] في ردك. أجب العميل بطريقة عملية ومختصرة."
+        f" الحاليان في العراق هما: {current_time_str}. أجب العميل بطريقة عملية ومختصرة."
         f" إذا ذكر اسم 'أحمد' أو المعرف {ADMIN_USERNAME} أو المطور، فتحدث عنه"
-        f" بكل احترام وتقدير وتوضيح أنه صانعك ومطورك. وإذا ذكر البرتقال فأظهر"
-        f" انزعاجك منه بشكل مختصر."
+        f" بكل احترام وتقدير وتوضيح أنه صانعك ومطورك."
     )
 
     chat_completion = client.chat.completions.create(
@@ -590,28 +678,12 @@ def handle_business_message(message):
     )
     ai_response = chat_completion.choices[0].message.content
 
-    sticker_to_send = None
-    if cached_stickers and "[STICKER:" in ai_response:
-      try:
-        parts = ai_response.split("[STICKER:")
-        ai_response = parts[0].strip()
-        sticker_part = parts[1].split("]")[0].strip()
-        sticker_index = int(sticker_part)
-        if 0 <= sticker_index < len(cached_stickers):
-          sticker_to_send = cached_stickers[sticker_index]
-      except Exception as ex:
-        print(f"خطأ في استخراج الملصق: {ex}")
-
-    sent_msg = bot.send_message(
+    bot.send_message(
         chat_id=message.chat.id,
         text=ai_response if ai_response else "أهلاً بك.",
         parse_mode="Markdown",
         reply_to_message_id=message.message_id,
     )
-    if sticker_to_send:
-      bot.send_sticker(
-          message.chat.id, sticker_to_send, reply_to_message_id=sent_msg.id
-      )
   except Exception as e:
     print(f"خطأ في معالجة رسالة الأعمال: {e}")
 
@@ -634,17 +706,6 @@ def chat_with_ai(message):
     mentioned_dev = "احمد" in text_lower or "twebii" in text_lower
     if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
       return
-
-  if "ملصق" in user_message and cached_stickers:
-    try:
-      bot.send_sticker(
-          message.chat.id,
-          random.choice(cached_stickers),
-          reply_to_message_id=message.message_id,
-      )
-      return
-    except Exception as e:
-      print(f"خطأ في إرسال الملصق المباشر: {e}")
 
   try:
     sent_msg = bot.reply_to(message, "جاري الرد...")
@@ -669,14 +730,7 @@ def chat_with_ai(message):
         f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب: {chosen_style_prompt},"
         f" واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. اسمك تويبي (Tweby)"
         f" ومطورك هو أحمد ومعرفه الرسمي هو {ADMIN_USERNAME}. الوقت والتاريخ"
-        f" الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو"
-        f" التاريخ أو السنة، أجب بدقة. إذا تم ذكر اسم 'أحمد' أو المعرف"
-        f" {ADMIN_USERNAME} أو المطور، تحدث عنه بتقدير كبير واعتبره مطورك"
-        f" وصانعك. لديك صفة خاصة: أنت تكره فاكهة 'البرتقال' وتعتبرها غير مفضلة،"
-        f" فإذا تم ذكرها أبدى انزعاجك البسيط منها. لديك قائمة ملصقات متاح"
-        f" اختيارها من 0 إلى {len(cached_stickers)-1}. إذا كان السياق مناسباً"
-        f" أو طلب المستخدم ملصقاً، قم بوضع [STICKER:رقم] في نهاية ردك لتتم إرسال"
-        f" الملصق مع الرد. أجب باختصار ووضوح ودون تكلف."
+        f" الحاليان في العراق هما: {current_time_str}."
     )
 
     chat_completion = client.chat.completions.create(
@@ -689,26 +743,12 @@ def chat_with_ai(message):
     )
     ai_response = chat_completion.choices[0].message.content
 
-    sticker_to_send = None
-    if cached_stickers and "[STICKER:" in ai_response:
-      try:
-        parts = ai_response.split("[STICKER:")
-        ai_response = parts[0].strip()
-        sticker_part = parts[1].split("]")[0].strip()
-        sticker_index = int(sticker_part)
-        if 0 <= sticker_index < len(cached_stickers):
-          sticker_to_send = cached_stickers[sticker_index]
-      except Exception as ex:
-        print(f"خطأ في استخراج الملصق: {ex}")
-
     bot.edit_message_text(
         ai_response if ai_response else "تفضل.",
         chat_id=message.chat.id,
         message_id=sent_msg.message_id,
         parse_mode="Markdown",
     )
-    if sticker_to_send:
-      bot.send_sticker(message.chat.id, sticker_to_send)
   except Exception as e:
     bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
 
@@ -742,6 +782,7 @@ if __name__ == "__main__":
             "business_message",
             "business_connection",
             "document",
+            "photo",
         ],
     )
     print("Webhook set successfully!")
