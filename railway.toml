@@ -1,5 +1,2 @@
-[build]
-aptPackages = ["tesseract-ocr"]
-
 [deploy]
 startCommand = "python bot.py"
