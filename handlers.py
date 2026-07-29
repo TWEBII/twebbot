@@ -1,172 +1,91 @@
-from ai import ask_ai
-from database import db
-from config import ADMIN_ID
-from keyboards import main_menu, admin_menu
-
+import config
+import database
+import ai
+import keyboards
 
 def register_handlers(bot):
-
-    @bot.message_handler(commands=["start"])
-    def start(message):
-
-        db.add_user(message.from_user)
-
-        is_admin = message.from_user.id == ADMIN_ID
-
-        text = (
-            "👋 أهلاً بك في Tweby AI\n\n"
-            "🤖 أنا مساعد ذكي يعمل بواسطة الذكاء الاصطناعي.\n"
-            "اختر أحد الخيارات من القائمة بالأسفل."
-        )
-
-        bot.send_message(
-            message.chat.id,
-            text,
-            reply_markup=main_menu(is_admin)
-        )
-
-
-    @bot.message_handler(commands=["help"])
-    def help_cmd(message):
-
-        bot.reply_to(
-            message,
-            "📌 أرسل أي سؤال وسأجيبك بالذكاء الاصطناعي."
-        )
-
-
-    @bot.message_handler(commands=["stats"])
-    def stats(message):
-
-        if message.from_user.id != ADMIN_ID:
-            return
-
-        users = db.total_users()
-        msgs = db.get_stat("messages")
-
-        bot.reply_to(
-            message,
-            f"👥 المستخدمون: {users}\n💬 الرسائل: {msgs}"
-        )
-
-
-    # لوحة تحكم المطور
-    @bot.message_handler(func=lambda m: m.text == "👑 لوحة التحكم")
-    def admin_panel(message):
-
-        if message.from_user.id != ADMIN_ID:
-            return
-
-        bot.send_message(
-            message.chat.id,
-            "👑 مرحباً أحمد\n\nاختر العملية التي تريدها:",
-            reply_markup=admin_menu()
-        )
-
-
-    # زر المطور
-    @bot.message_handler(func=lambda m: m.text == "👨‍💻 المطور")
-    def developer(message):
-
-        bot.send_message(
-            message.chat.id,
-            "👨‍💻 مطور البوت: أحمد\n\n"
-            "Tweby AI"
-        )
-
-
-    # زر المساعدة
-    @bot.message_handler(func=lambda m: m.text == "ℹ️ المساعدة")
-    def help_button(message):
-
-        bot.send_message(
-            message.chat.id,
-            "💡 أرسل أي رسالة وسأحاول مساعدتك."
-        )
-
-
-    # زر الدردشة الذكية
-    @bot.message_handler(func=lambda m: m.text == "🤖 الدردشة الذكية")
-    def ai_chat_button(message):
-
-        bot.send_message(
-            message.chat.id,
-            "🤖 أرسل سؤالك الآن."
-        )
-
-
-    # استقبال الرسائل والرد بالذكاء الاصطناعي
-    @bot.message_handler(content_types=["text"])
-    def chat(message):
-
-        db.add_user(message.from_user)
-
-        if message.text.startswith("/"):
-            return
-
-
-        # تجاهل أزرار التحكم
-        buttons = [
-            "👑 لوحة التحكم",
-            "👨‍💻 المطور",
-            "ℹ️ المساعدة",
-            "🤖 الدردشة الذكية",
-            "⚙️ الإعدادات",
-            "📜 سجل المحادثات"
-        ]
-
-        if message.text in buttons:
-            return
-
-
-        # المجموعات
-        if message.chat.type != "private":
-
-            reply = False
-            mention = False
-
-            if message.reply_to_message:
-
-                if message.reply_to_message.from_user.id == bot.get_me().id:
-                    reply = True
-
-            me = bot.get_me()
-
-            if me.username:
-
-                if "@" + me.username.lower() in message.text.lower():
-                    mention = True
-
-            if not reply and not mention:
-                return
-
-
-        wait = bot.reply_to(
-            message,
-            "⏳ جاري التفكير..."
-        )
-
-
-        try:
-
-            answer = ask_ai(
-                message.from_user,
-                message.text
+    
+    # 1. التعامل مع أمر /start
+    @bot.message_handler(commands=['start'])
+    def handle_start(message):
+        user_id = message.from_user.id
+        # نحفظ المستخدم بقاعدة البيانات
+        database.add_user(user_id) 
+        
+        # إذا كان المستخدم هو أنت (المطور)
+        if user_id == config.DEVELOPER_ID:
+            bot.reply_to(
+                message,
+                f"أهلاً بك يا مطوري 🫡\nأنا بوت {config.BOT_NAME} تحت خدمتك.\nهذه لوحة التحكم الخاصة بك:",
+                reply_markup=keyboards.developer_panel_markup()
             )
+        else:
+            # إذا كان مستخدم عادي نجيب رسالة الترحيب من القاعدة
+            start_msg = database.get_start_message()
+            bot.reply_to(message, start_msg)
 
-            bot.edit_message_text(
-                answer,
-                chat_id=message.chat.id,
-                message_id=wait.message_id
-            )
+    # 2. التعامل مع أزرار لوحة التحكم
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('panel_'))
+    def handle_developer_panel(call):
+        # التأكد من أن اللي ضغط الزر هو المطور
+        if call.from_user.id != config.DEVELOPER_ID:
+            bot.answer_callback_query(call.id, "هذه الأزرار للمطور فقط ⛔", show_alert=True)
+            return
 
+        # إذا ضغط على زر الإحصائيات
+        if call.data == "panel_stats":
+            count = database.get_users_count()
+            bot.answer_callback_query(call.id, f"📊 عدد المستخدمين الكلي: {count}", show_alert=True)
+            
+        # إذا ضغط على زر الإذاعة
+        elif call.data == "panel_broadcast":
+            msg = bot.send_message(call.message.chat.id, "📢 أرسل الرسالة التي تريد إذاعتها لجميع المستخدمين الآن:")
+            # ننتظر الرسالة الجاية من المطور ونوديها لدالة الإذاعة
+            bot.register_next_step_handler(msg, process_broadcast)
+            
+        # إذا ضغط على زر تغيير رسالة الترحيب
+        elif call.data == "panel_edit_start":
+            msg = bot.send_message(call.message.chat.id, "📝 أرسل رسالة الترحيب (Start) الجديدة:")
+            # ننتظر الرسالة الجاية من المطور ونوديها لدالة التعديل
+            bot.register_next_step_handler(msg, process_edit_start)
 
-        except Exception as e:
+    # دالة تنفيذ الإذاعة
+    def process_broadcast(message):
+        text = message.text
+        if not text:
+            bot.reply_to(message, "الرجاء إرسال نص للإذاعة. تم الإلغاء.")
+            return
+            
+        users = database.get_all_users()
+        success = 0
+        bot.send_message(message.chat.id, "جاري الإذاعة... ⏳")
+        for user in users:
+            try:
+                bot.send_message(user, text)
+                success += 1
+            except:
+                pass # نتجاهل المستخدم إذا كان حاظر البوت
+        
+        bot.reply_to(message, f"تمت الإذاعة بنجاح لـ {success} مستخدمين. ✅")
 
-            print(e)
+    # دالة تنفيذ تغيير رسالة الترحيب
+    def process_edit_start(message):
+        text = message.text
+        if not text:
+            bot.reply_to(message, "الرجاء إرسال نص. تم الإلغاء.")
+            return
+            
+        database.set_start_message(text)
+        bot.reply_to(message, "تم تحديث رسالة الـ start بنجاح. ✅")
 
-            bot.edit_message_text(
-                "❌ حدث خطأ أثناء معالجة الطلب.",
-                chat_id=message.chat.id,
-                message_id=wait.message_id
-            )
+    # 3. التعامل مع باقي الرسائل (الذكاء الاصطناعي)
+    @bot.message_handler(func=lambda message: True)
+    def handle_ai_chat(message):
+        # نرسل حالة "يكتب..." للمستخدم
+        bot.send_chat_action(message.chat.id, 'typing')
+        
+        # نجيب الجواب الدقيق والمؤكد من ملف ai.py
+        reply_text = ai.generate_ai_response(message.text)
+        
+        # نرسل الجواب
+        bot.reply_to(message, reply_text)
