@@ -39,7 +39,7 @@ total_messages_sent = 0
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
     "🛠 ما يمكنني فعله لك الآن:\n"
-    "• ترجمة الصور مرئياً بدقة (كتلة بكتلة) مع الحفاظ على التصميم الأصلي\n"
+    "• ترجمة الصور مرئياً بدقة متناهية مع الحفاظ على التصميم الأصلي\n"
     "• ترجمة ملفات الـ PDF بالكامل بنفس التنسيق والهيكل الهندسي للملف\n\n"
     "أرسل صورتك أو ملفك مباشرة لتجربة النظام المحدث!"
 )
@@ -87,36 +87,35 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """معالجة الكتل النصية بالكامل كسطر واحد متصل لمنع التقطع وتداخل الصناديق"""
+    """معالجة الأسطر والكتل النصية بأمان تام ودون أخطاء في المفاتيح"""
     font_available = ensure_arabic_font()
     
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
     
     try:
-        # استخدام وضع الكتل (Blocks) بدلاً من الكلمات المفردة لضمان دقة المساحات
         data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
-    blocks = {}
+    lines = {}
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
         if not text or len(text) < 2:
             continue
-        # التجميع بناءً على رقم الفقرة والسطر لتجنب التقطع
-        block_key = f"{data['block_num'][i]}_{data['paragraph_num'][i]}_{data['line_num'][i]}"
-        if block_key not in blocks:
-            blocks[block_key] = []
-        blocks[block_key].append(i)
+        # الاعتماد على block_num و line_num فقط لضمان التوافق المطلق
+        line_key = f"{data['block_num'][i]}_{data['line_num'][i]}"
+        if line_key not in lines:
+            lines[line_key] = []
+        lines[line_key].append(i)
         
-    for block_key, indices in blocks.items():
-        block_words = [data['text'][idx] for idx in indices]
-        full_text = " ".join(block_words).strip()
+    for line_key, indices in lines.items():
+        line_words = [data['text'][idx] for idx in indices]
+        full_line_text = " ".join(line_words).strip()
         
-        if not full_text or len(full_text) < 2:
+        if not full_line_text or len(full_line_text) < 2:
             continue
             
         lefts = [data['left'][idx] for idx in indices]
@@ -124,10 +123,10 @@ def translate_image_core(image_bytes):
         rights = [data['left'][idx] + data['width'][idx] for idx in indices]
         bottoms = [data['top'][idx] + data['height'][idx] for idx in indices]
         
-        x1, y1 = max(0, min(lefts) - 8), max(0, min(tops) - 5)
-        x2, y2 = min(img.width, max(rights) + 8), min(img.height, max(bottoms) + 5)
+        x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
+        x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
         
-        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_text}"
+        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -151,7 +150,7 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح السطر القديم كاملاً بلون الخلفية النقي
+        # مسح النص القديم بلون الخلفية
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         try:
@@ -161,7 +160,7 @@ def translate_image_core(image_bytes):
             bidi_text = arabic_text
             
         line_h = y2 - y1
-        font_size = max(14, int(line_h * 0.80))
+        font_size = max(14, int(line_h * 0.85))
         
         if font_available:
             try:
@@ -315,7 +314,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Block-Level Translation running smoothly!", 200
+    return "Tweby Stable Fix running smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
