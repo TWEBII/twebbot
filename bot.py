@@ -12,7 +12,7 @@ users_db = set()
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي.\n\n"
-    "🌐 لضمان عمل ترجمة الصور والمستندات والملفات بدقة كاملة وبدون أي قيود، اضغط على الزر أدناه لفتح **مترجم جوجل الرسمي في متصفحك الخارجي**:"
+    "🌐 لترجمة المستندات والملفات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:"
 )
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -31,9 +31,8 @@ def send_welcome(message):
     user_id = message.from_user.id
     users_db.add(user_id)
     
-    # استخدام زر عادي (URL Button) لفتح الموقع في متصفح الهاتف الخارجي (كروم) لتعمل كل مميزات الصور والملفات
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🌐 فتح مترجم جوجل في المتصفح الخارجي", url="https://translate.google.com/?hl=ar"))
+    markup.add(types.InlineKeyboardButton("🌐 فتح مترجم جوجل للمستندات والملفات", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
     
     bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
@@ -41,8 +40,8 @@ def send_welcome(message):
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_restricted_media(message):
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🌐 فتح مترجم جوجل", url="https://translate.google.com/?hl=ar"))
-    bot.reply_to(message, "⚠️ لرفع وترجمة الصور أو المستندات، يرجى النقر على زر **مترجم جوجل** بالأسفل ليفتح في متصفحك الخارجي بكامل الميزات.", reply_markup=markup)
+    markup.add(types.InlineKeyboardButton("🌐 فتح مترجم جوجل للمستندات", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
+    bot.reply_to(message, "⚠️ لترجمة الملفات والصور، يرجى النقر على زر **مترجم جوجل** بالأسفل:", reply_markup=markup)
 
 
 # مسار استقبال تحديثات تليجرام لمنع أخطاء 404
