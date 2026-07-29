@@ -21,6 +21,7 @@ TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
+GOOGLE_TRANSLATE_URL = "https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"
 
 POSSIBLE_SYSTEM_FONTS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -36,9 +37,9 @@ users_db = set()
 total_messages_sent = 0
 
 custom_start_message = (
-    "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🚀 تم إلغاء التشويش نهائياً وتحديث خوارزمية مسح الخلفية لتكون نظيفة 100%!\n"
-    "أرسل صورتك الآن!"
+    "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة.\n\n"
+    "🌐 تم ربط البوت مباشرة بخدمات ترجمة جوجل (Google Translate Documents & Web) لتوفير أزرار سريعة تضمن لك ترجمة مطابقة تماماً للموقع الرسمي!\n"
+    "أرسل صورتك أو ملفك الآن أو اضغط على الزر أدناه:"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -75,74 +76,31 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
+    # معالجة آمنة ونظيفة للصور بدون تشويش الحواف
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     w, h = img.size
     img_processed = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
     
     draw = ImageDraw.Draw(img)
-    
-    # استخدام psm 11 للعثور على الكتل النصية وتجنب مربعات التشويش
-    config = r'--oem 3 --psm 11'
+    config = r'--oem 3 --psm 6'
     try:
         data = pytesseract.image_to_data(img_processed, config=config, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
-    valid_blocks = []
-    
     for i in range(n_boxes):
         text = data['text'][i].strip()
-        if not text:
+        if not text or int(data['conf'][i]) < 50:
             continue
-        try:
-            conf = int(data['conf'][i])
-        except:
-            conf = 50
-        if conf < 40:
-            continue
-            
         x = data['left'][i] // 2
         y = data['top'][i] // 2
         bw = data['width'][i] // 2
         bh = data['height'][i] // 2
-        
-        if bw < 10 or bh < 8:
+        if bw < 15 or bh < 10:
             continue
             
-        valid_blocks.append({'text': text, 'x1': x, 'y1': y, 'x2': x + bw, 'y2': y + bh})
-        
-    # تجميع الكتل المتقاربة أفقياً وعمودياً لتجنب التقطيع المزعج
-    valid_blocks.sort(key=lambda b: (b['y1'] // 15, b['x1']))
-    lines = []
-    
-    for b in valid_blocks:
-        placed = False
-        for line in lines:
-            avg_y = sum((item['y1'] + item['y2']) / 2 for item in line) / len(line)
-            if abs((b['y1'] + b['y2']) / 2 - avg_y) < 12:
-                line.append(b)
-                placed = True
-                break
-        if not placed:
-            lines.append([b])
-            
-    for line in lines:
-        line.sort(key=lambda item: item['x1'])
-        full_line_text = " ".join([item['text'] for item in line]).strip()
-        if len(full_line_text) < 3:
-            continue
-            
-        x1 = min(item['x1'] for item in line)
-        y1 = min(item['y1'] for item in line)
-        x2 = max(item['x2'] for item in line)
-        y2 = max(item['y2'] for item in line)
-        
-        if (x2 - x1) < 20 or (y2 - y1) < 10:
-            current_line_words = []
-            continue
-            
-        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no quotes:\n{full_line_text}"
+        prompt = f"Translate the following English text into clear Arabic. Return ONLY the translation:\n{text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -156,23 +114,10 @@ def translate_image_core(image_bytes):
         if not arabic_text:
             continue
             
-        # رسم مستطيل خلفية موحد ونظيف تماماً بدلاً من تدرجات بكسلات التشويش
-        # نأخذ لون خلفية هادئ يناسب التصاميم الحمراء أو السوداء (لون مسطح نظيف)
-        draw.rectangle([x1 - 4, y1 - 3, x2 + 4, y2 + 3], fill=(50, 12, 12))
-        
-        box_h = y2 - y1
-        font_size = min(15, max(11, int(box_h * 0.75)))
-        font = get_working_font(font_size)
-        
-        try:
-            tw, th = draw.textbbox((0, 0), arabic_text, font=font)[2:]
-        except:
-            tw, th = len(arabic_text) * 5, font_size
-            
-        tx = x1 + max(2, (x2 - x1 - tw) // 2)
-        ty = y1 + max(2, (y2 - y1 - th) // 2)
-        
-        draw.text((tx, ty), arabic_text, fill=(255, 255, 255), font=font)
+        # رسم مستطيل خلفية بلون موحد نظيف جداً لمنع أي تشويش
+        draw.rectangle([x - 2, y - 2, x + bw + 2, y + bh + 2], fill=(30, 30, 30))
+        font = get_working_font(max(10, int(bh * 0.7)))
+        draw.text((x, y), arabic_text, fill=(255, 255, 255), font=font)
         
     out_buf = io.BytesIO()
     img.save(out_buf, format="JPEG", quality=95)
@@ -190,10 +135,11 @@ def set_bot_commands():
 def send_welcome(message):
     user_id = message.from_user.id
     users_db.add(user_id)
-    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton("🖼 ترجمة الصور مرئياً", callback_data="translate_photos_info"),
-        types.InlineKeyboardButton("📁 ترجمة الملفات", callback_data="translate_files_info")
+        types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل (Documents)", url=GOOGLE_TRANSLATE_URL),
+        types.InlineKeyboardButton("🖼 ترجمة الصور داخل البوت", callback_data="translate_photos_info"),
+        types.InlineKeyboardButton("📁 ترجمة ملفات PDF", callback_data="translate_files_info")
     )
     bot.reply_to(message, custom_start_message, reply_markup=markup)
 
@@ -201,9 +147,9 @@ def send_welcome(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     if call.data == "translate_photos_info":
-        bot.answer_callback_query(call.id, "أرسل أي صورة لترجمتها فوراً وبدقة كاملة!", show_alert=True)
+        bot.answer_callback_query(call.id, "أرسل صورتك الآن وسيقوم البوت بمعالجتها وترجمتها بوضوح!", show_alert=True)
     elif call.data == "translate_files_info":
-        bot.answer_callback_query(call.id, "أرسل ملف PDF لترجمته مع الحفاظ على التصميم والرسومات!", show_alert=True)
+        bot.answer_callback_query(call.id, "أرسل ملف PDF لترجمته بالكامل!", show_alert=True)
 
 
 @bot.message_handler(content_types=['document'])
@@ -213,7 +159,7 @@ def handle_documents(message):
     users_db.add(user_id)
     raw_file_name = message.document.file_name
     if not raw_file_name.lower().endswith('.pdf'):
-        bot.reply_to(message, "❌ عذراً، البوت يدعم ملفات الـ PDF فقط.")
+        bot.reply_to(message, "❌ عذراً، البوت يدعم ملفات الـ PDF فقط. أو يمكنك استخدام موقع جوجل المباشر عبر أمر /start.")
         return
         
     sent_msg = bot.reply_to(message, "⏳ جاري بدء معالجة صفحات الملف...")
@@ -239,8 +185,11 @@ def handle_documents(message):
         output_pdf_name = f"/tmp/translated_{raw_file_name}"
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل للملفات", url=GOOGLE_TRANSLATE_URL))
+        
         with open(output_pdf_name, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بالكامل وبدقة فائقة!")
+            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح!", reply_markup=markup)
             
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         doc.close()
@@ -262,10 +211,14 @@ def handle_photos(message):
         
         translated_photo_bytes = translate_image_core(downloaded_file)
         
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل الرسمي", url=GOOGLE_TRANSLATE_URL))
+        
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح وبخلفية نظيفة وخالية من التشويش!",
-            reply_to_message_id=message.message_id
+            caption="✅ تمت الترجمة بنجاح!",
+            reply_to_message_id=message.message_id,
+            reply_markup=markup
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
     except Exception as e:
@@ -301,7 +254,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Clean Background Running Smoothly!", 200
+    return "Tweby Google Translate Linked Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
