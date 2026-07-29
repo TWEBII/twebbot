@@ -1,6 +1,7 @@
-pyTelegramBotAPI
+دpyTelegramBotAPI
 Flask
 groq
 pypdf
 pytesseract
 Pillow
+pymupdf
