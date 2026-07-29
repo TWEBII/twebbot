@@ -22,7 +22,6 @@ ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-# مسارات خطوط النظام الأساسية في لينكس
 POSSIBLE_SYSTEM_FONTS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -38,8 +37,8 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 تم ضبط محاذاة الخط العربي ورسمه بشكل مباشر وصحيح 100%.\n"
-    "أرسل صورتك أو ملفك الآن لتجربة النتيجة النهائية!"
+    "🛠 تم تفعيل نظام دمج الكتل (Blocks) لمسح وترجمة كافة النصوص الإنجليزية بالكامل وبدقة فائقة.\n"
+    "أرسل صورتك الآن!"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -85,26 +84,26 @@ def translate_image_core(image_bytes):
         return image_bytes
         
     n_boxes = len(data['text'])
-    lines = {}
+    blocks = {}
     
+    # تجميع النصوص بناءً على رقم الكتلة (block_num) لضمان أخذ الفقرة كاملاً وعدم ترك أجزاء معلقة
     for i in range(n_boxes):
         text = data['text'][i].strip()
-        if not text or len(text) < 2:
+        if not text:
             continue
         if not any(c.isalpha() for c in text):
             continue
             
-        line_key = f"{data['block_num'][i]}_{data['line_num'][i]}"
-        if line_key not in lines:
-            lines[line_key] = []
-        lines[line_key].append(i)
+        block_key = str(data['block_num'][i])
+        if block_key not in blocks:
+            blocks[block_key] = []
+        blocks[block_key].append(i)
         
-    for line_key, indices in lines.items():
-        line_words = [data['text'][idx] for idx in indices]
-        full_line_text = " ".join(line_words).strip()
+    for block_key, indices in blocks.items():
+        block_words = [data['text'][idx] for idx in indices]
+        full_block_text = " ".join(block_words).strip()
         
-        full_line_text = ''.join(c for c in full_line_text if c.isalnum() or c.isspace() or c in ".,-")
-        if not full_line_text or len(full_line_text.strip()) < 2:
+        if not full_block_text or len(full_block_text) < 2:
             continue
             
         lefts = [data['left'][idx] for idx in indices]
@@ -115,7 +114,7 @@ def translate_image_core(image_bytes):
         x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
         x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
         
-        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
+        prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_block_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -139,10 +138,11 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
+        # مسح الكتلة الإنجليزية القديمة بالكامل باللون المستخرج من الخلفية
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
-        line_h = y2 - y1
-        font_size = max(14, int(line_h * 0.80))
+        box_h = y2 - y1
+        font_size = min(18, max(11, int(box_h * 0.65)))
         font = get_working_font(font_size)
             
         try:
@@ -151,12 +151,11 @@ def translate_image_core(image_bytes):
             try:
                 tw, th = font.getsize(arabic_text)
             except:
-                tw, th = len(arabic_text) * 7, font_size
+                tw, th = len(arabic_text) * 5, font_size
             
-        tx = x1 + (x2 - x1 - tw) // 2
-        ty = y1 + (y2 - y1 - th) // 2
+        tx = x1 + max(0, (x2 - x1 - tw) // 2)
+        ty = y1 + max(0, (y2 - y1 - th) // 2)
         
-        # رسم النص العربي مباشرة بدون أي انعكاس أو تعديل معقد
         draw.text((tx, ty), arabic_text, fill=text_color, font=font)
         
     out_buf = io.BytesIO()
@@ -225,7 +224,7 @@ def handle_documents(message):
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         
         with open(output_pdf_name, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح مع الحفاظ على التصميم بالكامل!")
+            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح ودعم كتل النصوص الكاملة!")
             
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         doc.close()
@@ -249,7 +248,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح واستبدال النصوص بالعربية بوضوح!",
+            caption="✅ تمت الترجمة بنجاح ومسح كافة النصوص الإنجليزية بالكامل!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -286,7 +285,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Final Corrected Arabic running smoothly!", 200
+    return "Tweby Block-Level Translation Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
