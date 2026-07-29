@@ -1,9 +1,11 @@
+import io
 import logging
 import os
 import random
 from datetime import datetime, timedelta
 from flask import Flask, request
 from groq import Groq
+from pypdf import PdfReader
 import telebot
 from telebot import types
 
@@ -53,10 +55,9 @@ def load_sticker_packs():
 
 
 def set_bot_commands():
-  """تعيين قائمة الأوامر التلقائية التي تظهر في زر القائمة (Menu) للجميع"""
   commands = [
       types.BotCommand("start", "بداية التشغيل والقائمة الرئيسية"),
-      types.BotCommand("info", "معلوماتي (قنواتي وحسابي)"),
+      types.BotCommand("info", "معلوماتي (قنواتي والحساب)"),
       types.BotCommand("style", "طريقة تعامل البوت معك"),
   ]
   try:
@@ -70,11 +71,9 @@ def send_welcome(message):
   user = message.from_user
   user_id = user.id
   users_db.add(user_id)
-
   user_name = user.first_name if user.first_name else "مستخدم"
   user_username = f"@{user.username}" if user.username else "بدون معرف"
 
-  # الأزرار التفاعلية للرسالة الترحيبية (تم تصحيح الأقواس هنا)
   markup = types.InlineKeyboardMarkup(row_width=1)
   markup.add(
       types.InlineKeyboardButton(
@@ -87,7 +86,6 @@ def send_welcome(message):
       )
   )
 
-  # إذا كان مطوراً، نضيف زر لوحة التحكم أيضاً
   if user_id == ADMIN_CHAT_ID or user.username == "TWEBii":
     markup.add(
         types.InlineKeyboardButton(
@@ -438,6 +436,84 @@ def execute_broadcast(message):
   )
 
 
+# --- الدالة الذكية والمحدثة لمعالجة وقراءة وترجمة ملفات الـ PDF فوراً ---
+@bot.message_handler(content_types=["document"])
+def handle_documents(message):
+  global total_messages_sent
+  user_id = message.from_user.id
+  users_db.add(user_id)
+
+  file_name = message.document.file_name
+  if not (file_name.endswith(".pdf") or file_name.endswith(".txt")):
+    bot.reply_to(
+        message,
+        "عذراً يا أحمد، أستطيع قراءة وترجمة ملفات الـ PDF أو الملفات النصية"
+        " فقط.",
+    )
+    return
+
+  sent_msg = bot.reply_to(
+      message, "⚡ جاري تحميل الملف وقراءته وترجمته بالذكاء الاصطناعي..."
+  )
+
+  try:
+    total_messages_sent += 1
+    file_info = bot.get_file(message.document.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    extracted_text = ""
+    if file_name.endswith(".pdf"):
+      with io.BytesIO(downloaded_file) as open_pdf:
+        reader = PdfReader(open_pdf)
+        for page in reader.pages:
+          text = page.extract_text()
+          if text:
+            extracted_text += text + "\n"
+    else:
+      extracted_text = downloaded_file.decode("utf-8", errors="ignore")
+
+    if not extracted_text.strip():
+      bot.edit_message_text(
+          "عذراً، لم أتمكن من استخراج أي نص من هذا الملف (قد يكون عبارة عن"
+          " صور مسحوبة ضوئياً).",
+          chat_id=message.chat.id,
+          message_id=sent_msg.message_id,
+      )
+      return
+
+    if len(extracted_text) > 12000:
+      extracted_text = (
+          extracted_text[:12000]
+          + "\n\n[ملاحظة: تم اقتطاع جزء من الملف لكونه طويلاً جداً]"
+      )
+
+    prompt = (
+        f"قم بترجمة النص التالي المأخوذ من ملف إلى اللغة العربية الفصحى الطبية"
+        f" والعلمية بدقة ووضوح، مع تنظيم النص وترتيبه بنقاط أو فقرات مفهومة:\n\n{extracted_text}"
+    )
+
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.3-70b-versatile",
+        temperature=0.3,
+    )
+    ai_response = chat_completion.choices[0].message.content
+
+    bot.edit_message_text(
+        ai_response if ai_response else "عذراً، حدث خطأ أثناء الترجمة.",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+        parse_mode="Markdown",
+    )
+
+  except Exception as e:
+    bot.edit_message_text(
+        f"حدث خطأ أثناء معالجة الملف: {str(e)}",
+        chat_id=message.chat.id,
+        message_id=sent_msg.message_id,
+    )
+
+
 @bot.message_handler(content_types=["photo"])
 def handle_photos(message):
   if message.chat.type == "private":
@@ -665,6 +741,7 @@ if __name__ == "__main__":
             "callback_query",
             "business_message",
             "business_connection",
+            "document",
         ],
     )
     print("Webhook set successfully!")
@@ -673,80 +750,3 @@ if __name__ == "__main__":
 
   port = int(os.environ.get("PORT", 8080))
   server.run(host="0.0.0.0", port=port)
-import io
-from pypdf import PdfReader
-
-
-@bot.message_handler(content_types=["document"])
-def handle_documents(message):
-  global total_messages_sent
-  user_id = message.from_user.id
-  users_db.add(user_id)
-
-  file_name = message.document.file_name
-  # التأكد أن الملف هو PDF أو ملف نصي
-  if not (file_name.endswith(".pdf") or file_name.endswith(".txt")):
-    bot.reply_to(
-        message, "عذراً، أستطيع قراءة وترجمة ملفات الـ PDF أو الملفات النصية فقط."
-    )
-    return
-
-  sent_msg = bot.reply_to(message, "جاري تحميل الملف وقراءته لترجمته...")
-
-  try:
-    total_messages_sent += 1
-    file_info = bot.get_file(message.document.file_id)
-    downloaded_file = bot.download_file(file_info.file_path)
-
-    extracted_text = ""
-    if file_name.endswith(".pdf"):
-      with io.BytesIO(downloaded_file) as open_pdf:
-        reader = PdfReader(open_pdf)
-        for page in reader.pages:
-          text = page.extract_text()
-          if text:
-            extracted_text += text + "\n"
-    else:
-      extracted_text = downloaded_file.decode("utf-8", errors="ignore")
-
-    if not extracted_text.strip():
-      bot.edit_message_text(
-          "عذراً، لم أتمكن من استخراج أي نص من هذا الملف (قد يكون عبارة عن"
-          " صور مسحوبة ضوئياً).",
-          chat_id=message.chat.id,
-          message_id=sent_msg.message_id,
-      )
-      return
-
-    # اقتصار النص على الحجم المناسب للنموذج إذا كان طويلاً جداً
-    if len(extracted_text) > 12000:
-      extracted_text = (
-          extracted_text[:12000]
-          + "\n\n[ملاحظة: تم اقتطاع جزء من الملف لكونه طويلاً جداً]"
-      )
-
-    prompt = (
-        f"قم بترجمة النص التالي المأخوذ من ملف إلى اللغة العربية الفصحى بدقة"
-        f" ووضوح، مع تنظيم النص وترتيبه:\n\n{extracted_text}"
-    )
-
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        model="llama-3.3-70b-versatile",
-        temperature=0.3,
-    )
-    ai_response = chat_completion.choices[0].message.content
-
-    bot.edit_message_text(
-        ai_response if ai_response else "عذراً، حدث خطأ أثناء الترجمة.",
-        chat_id=message.chat.id,
-        message_id=sent_msg.message_id,
-        parse_mode="Markdown",
-    )
-
-  except Exception as e:
-    bot.edit_message_text(
-        f"حدث خطأ أثناء معالجة الملف: {str(e)}",
-        chat_id=message.chat.id,
-        message_id=sent_msg.message_id,
-    
