@@ -23,10 +23,11 @@ ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-# روابط الخطوط الاحتياطية لضمان عملها 100% على السيرفر
+# روابط خطوط مستقرة ومباشرة
 FONT_URLS = [
-    "https://raw.githubusercontent.com/googlefonts/amiri/main/fonts/ttf/Amiri-Regular.ttf",
-    "https://github.com/googlefonts/amiri/raw/main/fonts/ttf/Amiri-Regular.ttf"
+    "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf",
+    "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo-Regular.ttf",
+    "https://raw.githubusercontent.com/googlefonts/amiri/main/fonts/ttf/Amiri-Regular.ttf"
 ]
 FONT_PATH = "Amiri-Regular.ttf"
 
@@ -36,7 +37,6 @@ cached_stickers = []
 
 users_db = set()
 total_messages_sent = 0
-user_styles = {}
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
@@ -52,18 +52,21 @@ server = Flask(__name__)
 
 
 def ensure_arabic_font():
-    """تحميل الخط العربي والتأكد من وجوده وصلاحيته لتجنب الصناديق الفارغة"""
+    """تحميل الخط العربي مع إضافة مستندات تعريف المتصفح لتجنب حظر السيرفرات"""
     if not os.path.exists(FONT_PATH) or os.path.getsize(FONT_PATH) < 1000:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
         for url in FONT_URLS:
             try:
-                r = requests.get(url, timeout=10)
+                r = requests.get(url, headers=headers, timeout=15)
                 if r.status_code == 200:
                     with open(FONT_PATH, "wb") as f:
                         f.write(r.content)
-                    print("✅ تم تحميل الخط العربي بنجاح.")
+                    print("✅ تم تحميل الخط العربي بنجاح وتخطي الحماية.")
                     return True
             except Exception as e:
-                print(f"فشل التحميل من الرابط {url}: {e}")
+                print(f"فشل جلب الخط من الرابط {url}: {e}")
         return False
     return True
 
@@ -82,14 +85,13 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """تعديل كامل: مسح وترجمة سطر بسطر (Line-by-Line) لمنع الصناديق العملاقة المخربطة"""
+    """معالجة متقدمة: عزل ألوان النص واستهداف الأسطر الحقيقية فقط"""
     font_available = ensure_arabic_font()
     
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
     
     try:
-        # جلب البيانات التفصيلية للنصوص وأرقام الأسطر والفقرات
         data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
@@ -97,12 +99,11 @@ def translate_image_core(image_bytes):
     n_boxes = len(data['text'])
     lines = {}
     
-    # التجميع بالاعتماد على رقم البلوك ورقم السطر معاً لمنع التداخل العشوائي المخربط
+    # تجميع الكلمات بناءً على البلوك والسطر
     for i in range(n_boxes):
         text = data['text'][i].strip()
         if not text or len(text) < 2:
             continue
-        # مفتاح فريد لكل سطر داخل كل بلوك
         line_key = f"{data['block_num'][i]}_{data['line_num'][i]}"
         if line_key not in lines:
             lines[line_key] = []
@@ -115,21 +116,17 @@ def translate_image_core(image_bytes):
         if not full_line_text or len(full_line_text) < 2:
             continue
             
-        # حساب أبعاد المربع الدقيق للسطر الحالي فقط دون التعدي على باقي الصفحة
+        # حساب أبعاد المربع الدقيق
         lefts = [data['left'][idx] for idx in indices]
         tops = [data['top'][idx] for idx in indices]
         rights = [data['left'][idx] + data['width'][idx] for idx in indices]
         bottoms = [data['top'][idx] + data['height'][idx] for idx in indices]
         
-        x1, y1 = min(lefts), min(tops)
-        x2, y2 = max(rights), max(bottoms)
+        x1, y1 = max(0, min(lefts) - 4), max(0, min(tops) - 3)
+        x2, y2 = min(img.width, max(rights) + 4), min(img.height, max(bottoms) + 3)
         
-        # هوامش أمان صغيرة جداً متناسقة مع حجم السطر
-        x1, y1 = max(0, x1 - 3), max(0, y1 - 2)
-        x2, y2 = min(img.width, x2 + 3), min(img.height, y2 + 2)
-        
-        # ترجمة السطر الفردي عبر الذكاء الاصطناعي بدقة صياغة تامة وبدون إضافات إنجليزية
-        prompt = f"Translate this text line to professional Arabic. Return ONLY the Arabic translation without quotes or text labels:\n{full_line_text}"
+        # استدعاء الترجمة الصارمة بدون أي هوامش أو نصوص جانبية
+        prompt = f"Translate the following medical/technical English text into professional Arabic. Return ONLY the translated Arabic text, no explanations, no english words, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -138,33 +135,37 @@ def translate_image_core(image_bytes):
             )
             arabic_text = chat_completion.choices[0].message.content.strip()
         except Exception:
-            arabic_text = full_line_text
+            continue
             
-        # استخراج عينة ألوان دقيقة جداً وموضعية للسطر لمسحه بتناغم
+        # حماية: إذا كانت الترجمة فارغة لا تحذف النص الأصلي
+        if not arabic_text or len(arabic_text) < 1:
+            continue
+            
+        # استخراج عينة الخلفية النقية باستخدام الـ Median لتجاهل لون الخط الأبيض تماماً
         box_region = img.crop((x1, y1, x2, y2))
         img_np = np.array(box_region)
         if img_np.size > 0:
-            bg_color = tuple(map(int, img_np.mean(axis=(0, 1))))
+            bg_color = tuple(map(int, np.median(img_np, axis=(0, 1))))
         else:
-            bg_color = (255, 255, 255)
+            bg_color = (15, 15, 15)
             
-        # تحديد لون النص الذكي بناءً على إضاءة الخلفية المحلية
+        # تحديد لون النص تلقائياً (أبيض أو أسود) حسب درجة عتمة الخلفية
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح السطر الإنجليزي القديم فقط بنعومة
+        # مسح النص القديم بلون متناسق تماماً مع السلايد
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
-        # معالجة النصوص والمحاذاة الصحيحة للغة العربية من اليمين إلى اليسار
+        # تشكيل وإصلاح اتجاه النصوص العربية (من اليمين لليسار)
         try:
             reshaped = arabic_reshaper.reshape(arabic_text)
             bidi_text = get_display(reshaped)
         except Exception:
             bidi_text = arabic_text
             
-        # ضبط حجم الخط ليكون متناسقاً تماماً مع ارتفاع السطر الممسوح
+        # حساب الحجم المناسب للخط بناءً على ارتفاع السطر الأصلي
         line_h = y2 - y1
-        font_size = max(12, int(line_h * 0.85))
+        font_size = max(14, int(line_h * 0.88))
         
         if font_available:
             try:
@@ -174,19 +175,19 @@ def translate_image_core(image_bytes):
         else:
             font = ImageFont.load_default()
             
-        # حساب أبعاد النص الفعلي لضمان وضعه بمنتصف مربع السطر تماماً
+        # حساب التموضع ليكون النص المترجم في المنتصف الهندسي تماماً
         try:
             tw, th = draw.textbbox((0, 0), bidi_text, font=font)[2:]
         except Exception:
             try:
                 tw, th = font.getsize(bidi_text)
             except:
-                tw, th = len(bidi_text) * 6, font_size
+                tw, th = len(bidi_text) * 7, font_size
             
         tx = x1 + (x2 - x1 - tw) // 2
         ty = y1 + (y2 - y1 - th) // 2
         
-        # طباعة الحروف العربية المترجمة بدقة داخل السطر
+        # طباعة النص العربي النظيف والمستقر
         draw.text((tx, ty), bidi_text, fill=text_color, font=font)
         
     out_buf = io.BytesIO()
@@ -202,19 +203,17 @@ def load_sticker_packs():
             pack = bot.get_sticker_set(pack_name)
             all_stickers.extend([sticker.file_id for sticker in pack.stickers])
         except Exception as e:
-            print(f"فشل تحميل حزمة الملصقات {pack_name}: {e}")
+            print(f"Sticker pack error: {e}")
     cached_stickers = all_stickers
-    return len(cached_stickers)
 
 
 def set_bot_commands():
     try:
         bot.set_my_commands([
-            types.BotCommand("start", "القائمة الرئيسية والمساعدة"),
-            types.BotCommand("info", "معلومات المطور والقنوات")
+            types.BotCommand("start", "القائمة الرئيسية والمساعدة")
         ])
     except Exception as e:
-        print(f"فشل تعيين الأوامر: {e}")
+        print(f"Commands error: {e}")
 
 
 @bot.message_handler(commands=['start'])
@@ -227,26 +226,15 @@ def send_welcome(message):
         types.InlineKeyboardButton("🖼 ترجمة الصور مرئياً", callback_data="translate_photos_info"),
         types.InlineKeyboardButton("📁 ترجمة الملفات (تنسيق كامل)", callback_data="translate_files_info")
     )
-    if user_id == ADMIN_CHAT_ID:
-        markup.add(types.InlineKeyboardButton("🛠 لوحة التحكم", callback_data="admin_panel"))
-        
     bot.reply_to(message, custom_start_message, reply_markup=markup)
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    user_id = call.from_user.id
-    data = call.data
-    if data == "translate_photos_info":
+    if call.data == "translate_photos_info":
         bot.answer_callback_query(call.id, "أرسل أي صورة، وسأقوم باستبدال النصوص الإنجليزية داخل أسطرها بالعربية فوراً وبنفس المظهر العادي!", show_alert=True)
-    elif data == "translate_files_info":
-        bot.answer_callback_query(call.id, "أرسل ملف PDF، وسأترجم أسطر الصفحات بصرية بالكامل مع المحافظة على الرسومات والهيكل الأساسي للمستند الدراسّي!", show_alert=True)
-    elif data == "admin_panel" and user_id == ADMIN_CHAT_ID:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 العودة", callback_data="back_to_main"))
-        bot.edit_message_text("لوحة التحكم الإدارية النشطة.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
-    elif data == "back_to_main":
-        send_welcome(call.message)
+    elif call.data == "translate_files_info":
+        bot.answer_callback_query(call.id, "أرسل ملف PDF، وسأترجم أسطر الصفحات بصرية بالكامل مع المحافظة على الرسومات والهيكل الأساسي للمستند الدراسي!", show_alert=True)
 
 
 @bot.message_handler(content_types=['document'])
@@ -259,7 +247,7 @@ def handle_documents(message):
     file_name = raw_file_name.lower()
     
     if not file_name.endswith('.pdf'):
-        bot.reply_to(message, "❌ عذراً أحمد، البوت يدعم الترجمة البصرية الهيكلية لملفات الـ PDF الطبية والعلمية فقط حالياً.")
+        bot.reply_to(message, "❌ عذراً، البوت يدعم الترجمة البصرية الهيكلية لملفات الـ PDF الطبية والعلمية فقط حالياً.")
         return
         
     sent_msg = bot.reply_to(message, "⏳ جاري تحميل واستكشاف بنية صفحات ملف الـ PDF...\n▓░░░░░░░░░ 0%")
@@ -271,12 +259,11 @@ def handle_documents(message):
         
         doc = fitz.open(stream=downloaded_file, filetype="pdf")
         total_pages = len(doc)
-        
         translated_images_list = []
         
         for page_num in range(total_pages):
             safe_edit_message(
-                f"⚙️ جاري قراءة وترجمة أسطر الصفحة البصرية ({page_num + 1} من {total_pages})...\n"
+                f"⚙️ جاري معالجة وترجمة الصفحة البصرية ({page_num + 1} من {total_pages})...\n"
                 f"██████░░░░ {int(((page_num + 1) / total_pages) * 100)}%", 
                 chat_id=message.chat.id, message_id=sent_msg.message_id
             )
@@ -285,9 +272,7 @@ def handle_documents(message):
             pix = page.get_pixmap(dpi=150)
             png_bytes = pix.tobytes("png")
             
-            # معالجة الترجمة الخطية الدقيقة
             translated_img_bytes = translate_image_core(png_bytes)
-            
             pil_img = Image.open(io.BytesIO(translated_img_bytes)).convert("RGB")
             translated_images_list.append(pil_img)
             
@@ -338,7 +323,6 @@ def handle_photos(message):
         
         safe_edit_message("🔍 جاري معالجة الأسطر ومسح العبارات القديمة بدقة خطية...\n██████░░░░ 60%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
-        # استدعاء الترجمة الخطية النظيفة سطر بسطر
         translated_photo_bytes = translate_image_core(downloaded_file)
         
         safe_edit_message("⚡ جاري تسليم الصورة المترجمة المحدثة الآن...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
