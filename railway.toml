@@ -1,5 +1,0 @@
-[build]
-pkgs = ["tesseract"]
-
-[deploy]
-startCommand = "python bot.py"
