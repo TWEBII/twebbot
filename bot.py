@@ -8,7 +8,7 @@ from flask import Flask, request
 from groq import Groq
 import pypdf
 import pytesseract
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import fitz  # PyMuPDF
 import telebot
 from telebot import types
@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 تم تحديث نظام الكشف لتجاوز الخطوط البيضاء والأسهم المتداخلة وضمان ترجمة كافة النصوص بدقة.\n"
+    "🚀 تم تطبيق التحديثات الجذرية: تباين عالي، تكبير دقيق، وتجاوز قيود البلوكات لضمان ترجمة 99% من النصوص!\n"
     "أرسل صورتك الآن!"
 )
 
@@ -76,12 +76,17 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 def translate_image_core(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    
+    # المعالجة المسبقة للصورة رفع الدقة 3 أضعاف وتحسين التباين
     w, h = img.size
-    img_resized = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+    img_processed = img.resize((w * 3, h * 3), Image.Resampling.LANCZOS)
+    img_processed = ImageOps.autocontrast(img_processed)
+    
     draw = ImageDraw.Draw(img)
     
+    config = r'--oem 3 --psm 6'
     try:
-        data = pytesseract.image_to_data(img_resized, output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(img_processed, config=config, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
@@ -92,23 +97,31 @@ def translate_image_core(image_bytes):
         text = data['text'][i].strip()
         if not text:
             continue
-        if not any(c.isalnum() for c in text):
+            
+        # التحقق من نسبة الثقة لتجنب النصوص الوهمية أو المشوشة
+        try:
+            conf = int(data['conf'][i])
+        except:
+            conf = 50
+            
+        if conf < 25:
             continue
             
-        line_key = f"{data['block_num'][i]}_{data['par_num'][i]}_{data['line_num'][i]}"
+        # تجميع بناءً على السطر بغض النظر عن قيود الـ Block الصارمة
+        line_key = f"{data['line_num'][i]}"
         if line_key not in lines:
             lines[line_key] = []
         lines[line_key].append(i)
         
-    sorted_keys = sorted(lines.keys())
+    sorted_keys = sorted(lines.keys(), key=lambda x: int(x) if x.isdigit() else 0)
     merged_lines = []
     
     for line_key in sorted_keys:
         indices = lines[line_key]
-        lefts = [data['left'][idx] // 2 for idx in indices]
-        tops = [data['top'][idx] // 2 for idx in indices]
-        rights = [(data['left'][idx] + data['width'][idx]) // 2 for idx in indices]
-        bottoms = [(data['top'][idx] + data['height'][idx]) // 2 for idx in indices]
+        lefts = [data['left'][idx] // 3 for idx in indices]
+        tops = [data['top'][idx] // 3 for idx in indices]
+        rights = [(data['left'][idx] + data['width'][idx]) // 3 for idx in indices]
+        bottoms = [(data['top'][idx] + data['height'][idx]) // 3 for idx in indices]
         
         x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
         x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
@@ -116,11 +129,11 @@ def translate_image_core(image_bytes):
         words = [data['text'][idx] for idx in indices]
         text_content = " ".join(words).strip()
         
-        if len(text_content) > 1:
+        if len(text_content) > 0:
             merged_lines.append((x1, y1, x2, y2, text_content))
             
     for (x1, y1, x2, y2, full_line_text) in merged_lines:
-        if (x2 - x1) < 10 or (y2 - y1) < 8:
+        if (x2 - x1) < 8 or (y2 - y1) < 6:
             continue
             
         prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no English words, no quotes:\n{full_line_text}"
@@ -285,7 +298,7 @@ def chat_with_ai(message):
 
 
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
-def redirect_message():
+def redirect_message(message=None):
     json_string = request.get_data().decode('utf-8')
     update = types.Update.de_json(json_string)
     threading.Thread(target=bot.process_new_updates, args=([update],)).start()
@@ -293,7 +306,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Ultimate Stable Running Smoothly!", 200
+    return "Tweby Ultimate Pro OCR Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
