@@ -51,19 +51,9 @@ def load_sticker_packs():
             pack = bot.get_sticker_set(pack_name)
             stickers = [sticker.file_id for sticker in pack.stickers]
             all_stickers.extend(stickers)
-            print(f"تم تحميل {len(stickers)} ملصقاً من الحزمة: {pack_name}")
         except Exception as e:
-            print(f"فشل تحميل الحزمة {pack_name}: {e}")
+            pass
     cached_stickers = all_stickers
-
-def set_bot_commands():
-    try:
-        bot.set_my_commands([
-            types.BotCommand("start", "القائمة الرئيسية"),
-            types.BotCommand("admin", "لوحة التحكم")
-        ])
-    except Exception:
-        pass
 
 # أمر البدء وترحيب المستخدمين
 @bot.message_handler(commands=['start', 'help'])
@@ -93,7 +83,7 @@ def send_welcome(message):
             )
             bot.send_message(ADMIN_CHAT_ID, notification, parse_mode="Markdown")
         except Exception as e:
-            print(f"فشل إرسال الإشعار: {e}")
+            pass
 
 # أمر لوحة التحكم للمطور
 @bot.message_handler(commands=['admin'])
@@ -256,28 +246,30 @@ def chat_with_ai(message):
     except Exception as e:
         bot.edit_message_text(f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
-# مسار استقبال تحديثات تليجرام (Webhook) لمنع توقف البوت على Railway
+# مسار استقبال تحديثات تليجرام (Webhook)
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def redirect_message():
-    json_string = request.get_data().decode('utf-8')
-    update = types.Update.de_json(json_string)
-    threading.Thread(target=bot.process_new_updates, args=([update],)).start()
-    return "!", 200
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return '', 403
 
 @server.route("/")
 def index():
     return "TWEB Google Translate Bot Running Smoothly!", 200
 
+# تعيين الـ Webhook تلقائياً وبشكل آمن عند بدء التشغيل
 if __name__ == "__main__":
-    print("جاري بدء تشغيل البوت عبر Webhook...")
     load_sticker_packs()
-    set_bot_commands()
-    
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}")
+        print("تم تعيين الـ Webhook بنجاح وإلغاء القفل القديم.")
     except Exception as e:
-        print(f"Webhook error: {e}")
+        print(f"Webhook setting error: {e}")
         
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
