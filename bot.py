@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🚀 تم ضبط نظام الترجمة ليعمل ببساطة ونظافة تامة مثل ترجمة Google!\n"
+    "🚀 تم إلغاء التشويش نهائياً وتحديث خوارزمية مسح الخلفية لتكون نظيفة 100%!\n"
     "أرسل صورتك الآن!"
 )
 
@@ -81,15 +81,15 @@ def translate_image_core(image_bytes):
     
     draw = ImageDraw.Draw(img)
     
-    # استخدام psm 3 لاستخراج الكتل النصية بوضوح تام
-    config = r'--oem 3 --psm 3'
+    # استخدام psm 11 للعثور على الكتل النصية وتجنب مربعات التشويش
+    config = r'--oem 3 --psm 11'
     try:
         data = pytesseract.image_to_data(img_processed, config=config, output_type=pytesseract.Output.DICT)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
-    lines_dict = {}
+    valid_blocks = []
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
@@ -99,37 +99,47 @@ def translate_image_core(image_bytes):
             conf = int(data['conf'][i])
         except:
             conf = 50
-        if conf < 15:
+        if conf < 40:
             continue
             
-        b_id = data['block_num'][i]
-        p_id = data['par_num'][i]
-        l_id = data['line_num'][i]
-        key = (b_id, p_id, l_id)
-        
         x = data['left'][i] // 2
         y = data['top'][i] // 2
         bw = data['width'][i] // 2
         bh = data['height'][i] // 2
         
-        if key not in lines_dict:
-            lines_dict[key] = {'x1': x, 'y1': y, 'x2': x + bw, 'y2': y + bh, 'words': []}
-        else:
-            item = lines_dict[key]
-            item['x1'] = min(item['x1'], x)
-            item['y1'] = min(item['y1'], y)
-            item['x2'] = max(item['x2'], x + bw)
-            item['y2'] = max(item['y2'], y + bh)
-            
-        lines_dict[key]['words'].append(text)
-        
-    for key, line_info in lines_dict.items():
-        full_line_text = " ".join(line_info['words']).strip()
-        if len(full_line_text) < 2:
+        if bw < 10 or bh < 8:
             continue
             
-        x1, y1, x2, y2 = line_info['x1'], line_info['y1'], line_info['x2'], line_info['y2']
-        if (x2 - x1) < 10 or (y2 - y1) < 6:
+        valid_blocks.append({'text': text, 'x1': x, 'y1': y, 'x2': x + bw, 'y2': y + bh})
+        
+    # تجميع الكتل المتقاربة أفقياً وعمودياً لتجنب التقطيع المزعج
+    valid_blocks.sort(key=lambda b: (b['y1'] // 15, b['x1']))
+    lines = []
+    
+    for b in valid_blocks:
+        placed = False
+        for line in lines:
+            avg_y = sum((item['y1'] + item['y2']) / 2 for item in line) / len(line)
+            if abs((b['y1'] + b['y2']) / 2 - avg_y) < 12:
+                line.append(b)
+                placed = True
+                break
+        if not placed:
+            lines.append([b])
+            
+    for line in lines:
+        line.sort(key=lambda item: item['x1'])
+        full_line_text = " ".join([item['text'] for item in line]).strip()
+        if len(full_line_text) < 3:
+            continue
+            
+        x1 = min(item['x1'] for item in line)
+        y1 = min(item['y1'] for item in line)
+        x2 = max(item['x2'] for item in line)
+        y2 = max(item['y2'] for item in line)
+        
+        if (x2 - x1) < 20 or (y2 - y1) < 10:
+            current_line_words = []
             continue
             
         prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no quotes:\n{full_line_text}"
@@ -146,15 +156,12 @@ def translate_image_core(image_bytes):
         if not arabic_text:
             continue
             
-        box_region = img.crop((x1, y1, x2, y2))
-        img_np = np.array(box_region)
-        bg_color = tuple(map(int, np.median(img_np, axis=(0, 1)))) if img_np.size > 0 else (20, 20, 20)
-        
-        # تغطية النص القديم بلون الخلفية بدقة
-        draw.rectangle([x1 - 2, y1 - 2, x2 + 2, y2 + 2], fill=bg_color)
+        # رسم مستطيل خلفية موحد ونظيف تماماً بدلاً من تدرجات بكسلات التشويش
+        # نأخذ لون خلفية هادئ يناسب التصاميم الحمراء أو السوداء (لون مسطح نظيف)
+        draw.rectangle([x1 - 4, y1 - 3, x2 + 4, y2 + 3], fill=(50, 12, 12))
         
         box_h = y2 - y1
-        font_size = min(15, max(10, int(box_h * 0.7)))
+        font_size = min(15, max(11, int(box_h * 0.75)))
         font = get_working_font(font_size)
         
         try:
@@ -257,7 +264,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح وبشكل نظيف مثل ترجمة جوجل!",
+            caption="✅ تمت الترجمة بنجاح وبخلفية نظيفة وخالية من التشويش!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -294,7 +301,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Clean Google-like Translation Running Smoothly!", 200
+    return "Tweby Clean Background Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
