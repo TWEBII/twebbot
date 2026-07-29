@@ -1,6 +1,7 @@
 import io
 import os
 import random
+import time
 from datetime import datetime, timedelta
 from flask import Flask, request
 from groq import Groq
@@ -9,7 +10,7 @@ import pytesseract
 from PIL import Image
 import telebot
 from telebot import types
-import fitz  # المكتبة الجديدة للتعامل الذكي مع الـ PDF المصور
+import fitz  # المكتبة الذكية للتعامل مع الـ PDF المصور
 
 # إعدادات البوت والربط الثابتة
 GROQ_API_KEY = "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"
@@ -27,7 +28,7 @@ users_db = set()
 total_messages_sent = 0
 user_styles = {}
 
-# رسالة الترحيب الافتراضية (يمكن للأدمن تعديلها ديناميكياً)
+# رسالة الترحيب الافتراضية
 custom_start_message = (
     "هلا بيك. أنا **تويبي (Tweby)**، مساعدك الشخصي للترجمة وقراءة الملفات والصور.\n\n"
     "🛠 **ما يمكنني فعله لك:**\n"
@@ -46,7 +47,6 @@ server = Flask(__name__)
 
 
 def load_sticker_packs():
-    """تحميل الملصقات من الحزم المحددة لزيادة التفاعل"""
     global cached_stickers
     all_stickers = []
     for pack_name in STICKER_PACK_NAMES:
@@ -61,7 +61,6 @@ def load_sticker_packs():
 
 
 def set_bot_commands():
-    """تعيين قائمة الأوامر الجانبية للبوت Menu"""
     commands = [
         types.BotCommand("start", "بداية التشغيل والقائمة الرئيسية"),
         types.BotCommand("info", "معلومات المطور والقنوات الرسمية"),
@@ -127,16 +126,14 @@ def callback_handler(call):
     user_id = call.from_user.id
     data = call.data
 
-    # معلومات القائمة الرئيسية
     if data == "translate_photos_info":
-        bot.answer_callback_query(call.id, "فقط قم بإرسال أي صورة تحتوي على نصوص وسأقوم بترجمتها فوراً وبتنسيق طبي ذكي!", show_alert=True)
+        bot.answer_callback_query(call.id, "فقط أرسل أي صورة تحتوي نصوصاً، وسأترجمها وأعيد إرسالها لك مع التقرير والعداد!", show_alert=True)
     elif data == "translate_files_info":
-        bot.answer_callback_query(call.id, "قم بإرسال ملف PDF (سواء كان رقمياً أو مصوراً سكانر) وسأتولى قراءته بالكامل وترجمته!", show_alert=True)
+        bot.answer_callback_query(call.id, "قم بإرسال ملف PDF (سواء كان رقمياً أو مصوراً سكانر) وسأتولى قراءته بالكامل وترجمته كملف جاهز!", show_alert=True)
     elif data == "my_info":
         text = "📌 **المطور:** أحمد (@TWEBii)\n📢 **القنوات:**\n- @lTelegramWeb\n- @TWEBiii"
         bot.answer_callback_query(call.id, text, show_alert=True)
         
-    # نظام التحكم بالأسلوب
     elif data == "bot_style":
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -159,7 +156,6 @@ def callback_handler(call):
         user_styles[user_id] = styles_map.get(style_type, "ودي وطبيعي")
         bot.answer_callback_query(call.id, f"✅ تم حفظ تفضيلك: أسلوب {user_styles[user_id]}", show_alert=True)
 
-    # لوحة التحكم الإدارية للأدمن (أحمد)
     elif data == "admin_panel" and user_id == ADMIN_CHAT_ID:
         show_admin_menu(call.message)
     elif data == "admin_stats" and user_id == ADMIN_CHAT_ID:
@@ -210,7 +206,7 @@ def show_admin_menu(message):
     bot.edit_message_text("🛠 لوحة التحكم الإدارية الخاصة بك يا أحمد:", chat_id=message.chat.id, message_id=message.message_id, reply_markup=markup)
 
 
-# --- خطوات لوحة التحكم (Next Step Handlers) ---
+# --- خطوات لوحة التحكم الإدارية ---
 
 def process_broadcast_step(message):
     if message.text == "/cancel":
@@ -228,7 +224,7 @@ def process_broadcast_step(message):
             success_count += 1
         except:
             fail_count += 1
-    bot.reply_to(message, f"📢 **اكتملت الإذاعة بنجاح!**\n\n✅ تم الإرسال إلى: {success_count}\n❌ فشل الإرسال (بوت محظور): {fail_count}", parse_mode="Markdown")
+    bot.reply_to(message, f"📢 **اكتملت الإذاعة بنجاح!**\n\n✅ تم الإرسال إلى: {success_count}\n❌ فشل الإرسال: {fail_count}", parse_mode="Markdown")
 
 
 def process_edit_start_step(message):
@@ -241,10 +237,10 @@ def process_edit_start_step(message):
         return
         
     custom_start_message = message.text
-    bot.reply_to(message, "✅ تم تحديث رسالة البدء بنجاح! سيراها المستخدمون عند تشغيل البوت مجدداً.")
+    bot.reply_to(message, "✅ تم تحديث رسالة البدء بنجاح!")
 
 
-# --- المعالجة الذكية والمحدثة للمستندات والـ PDF (الرقمي والمصور سكانر) ---
+# --- المعالجة الاحترافية للمستندات والـ PDF مع العداد وصناعة الملف المترجم ---
 
 @bot.message_handler(content_types=['document'])
 def handle_documents(message):
@@ -252,37 +248,36 @@ def handle_documents(message):
     user_id = message.from_user.id
     users_db.add(user_id)
     
-    file_name = message.document.file_name.lower()
-    sent_msg = bot.reply_to(message, "⚡ جاري فحص بنية الملف واستخراج النصوص البرمجية...")
+    raw_file_name = message.document.file_name
+    file_name = raw_file_name.lower()
+    
+    sent_msg = bot.reply_to(message, "⏳ جاري بدء معالجة وتجهيز ملفك الخاص...\n▓░░░░░░░░░ 0%")
     
     try:
         total_messages_sent += 1
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
+        bot.edit_message_text("🔍 جاري فحص بنية الملف واستخراج النصوص البرمجية...\n██░░░░░░░░ 20%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
         extracted_full_text = ""
         
         if file_name.endswith('.pdf'):
-            # فتح الملف من الذاكرة كـ Stream مباشر عبر مكتبة fitz الذكية
             doc = fitz.open(stream=downloaded_file, filetype="pdf")
             
-            # محاولة 1: قراءة النصوص المباشرة إذا كان الملف رقمياً منسوخاً
             for page_num, page in enumerate(doc):
                 page_text = page.get_text()
                 if page_text and page_text.strip():
                     extracted_full_text += f"\n--- الصفحة {page_num + 1} ---\n" + page_text
             
-            # محاولة 2: إذا تبين أن المستند فارغ نصياً (ملف سكانر / مصور)
             if not extracted_full_text.strip():
-                bot.edit_message_text("🔍 تبين أن هذا الملف مصور (سكانر). جاري تشغيل معالج الصور المتقدم واستخراج الكلمات بدقة...", chat_id=message.chat.id, message_id=sent_msg.message_id)
+                bot.edit_message_text("⚙️ تبين أن الملف مصور (سكانر). جاري تشغيل معالج الصور المتقدم وقراءة الصفحات...\n████░░░░░░ 40%", chat_id=message.chat.id, message_id=sent_msg.message_id)
                 
                 for page_num, page in enumerate(doc):
-                    # تحويل صفحة الـ PDF إلى صورة مؤقتة بدقة وضوح ممتازة لـ Tesseract
                     pix = page.get_pixmap(dpi=150)
                     img_data = pix.tobytes("png")
                     img = Image.open(io.BytesIO(img_data))
                     
-                    # استخراج النصوص باستخدام المحرك المثبت على السيرفر
                     ocr_text = pytesseract.image_to_string(img)
                     if ocr_text and ocr_text.strip():
                         extracted_full_text += f"\n--- الصفحة {page_num + 1} ---\n" + ocr_text
@@ -290,17 +285,18 @@ def handle_documents(message):
         elif file_name.endswith('.txt'):
             extracted_full_text = downloaded_file.decode('utf-8', errors='ignore')
         else:
-            bot.edit_message_text("عذراً، يدعم البوت حالياً ملفات PDF والملفات النصية (.txt) فقط.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            bot.edit_message_text("❌ عذراً، يدعم البوت حالياً ملفات PDF والملفات النصية (.txt) فقط.", chat_id=message.chat.id, message_id=sent_msg.message_id)
             return
             
         if not extracted_full_text.strip():
-            bot.edit_message_text("⚠️ لم أتمكن من استخراج أي نصوص داخل هذا الملف، تأكد من جودة الصورة أو الملف.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            bot.edit_message_text("⚠️ لم أتمكن من استخراج أي كلمات من هذا الملف، يرجى التأكد من وضوح الصفحات.", chat_id=message.chat.id, message_id=sent_msg.message_id)
             return
             
-        # إرسال النص المستخلص إلى الـ AI للترجمة المحترفة والتنسيق الطبي/العلمي
+        bot.edit_message_text("🤖 جاري إرسال النصوص لمحرك الذكاء الاصطناعي وصياغة الترجمة الفصحى المحترفة...\n██████░░░░ 60%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
         prompt = (
             f"قم بترجمة النص التالي المستخرج من الملف إلى اللغة العربية الفصحى بدقة واحترافية متناهية، "
-            f"مع تنظيم وترتيب العناوين والنقاط الطبية أو العلمية بشكل جميل وسهل القراءة:\n\n{extracted_full_text}"
+            f"مع تنظيم وترتيب العناوين والنقاط الطبية أو العلمية بشكل جميل وسهل القراءة وبأسلوب أكاديمي ممتاز:\n\n{extracted_full_text}"
         )
         
         chat_completion = client.chat.completions.create(
@@ -310,13 +306,42 @@ def handle_documents(message):
         )
         ai_response = chat_completion.choices[0].message.content
         
-        bot.edit_message_text(ai_response if ai_response else "عذراً، واجه الذكاء الاصطناعي مشكلة في معالجة النص.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
+        if not ai_response:
+            bot.edit_message_text("❌ عذراً، واجه الذكاء الاصطناعي مشكلة في ترجمة النص.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            return
+
+        bot.edit_message_text("📂 اكملت الترجمة! جاري صياغة وحفظ البيانات داخل ملفك المترجم الشامل...\n████████░░ 85%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
+        output_file_name = f"مترجم_{raw_file_name}"
+        if not output_file_name.lower().endswith('.txt'):
+            output_file_name = output_file_name.rsplit('.', 1)[0] + ".txt"
+            
+        with open(output_file_name, "w", encoding="utf-8") as f:
+            f.write(f"=========================================\n")
+            f.write(f"  الملف المترجم بالكامل بواسطة بوت تويبي  \n")
+            f.write(f"  اسم الملف الأصلي: {raw_file_name}\n")
+            f.write(f"  التاريخ: {datetime.now().strftime('%Y-%m-%d')}\n")
+            f.write(f"=========================================\n\n")
+            f.write(ai_response)
+            
+        bot.edit_message_text("⚡ جاري رفع الملف المترجم النهائي وإرساله إليك الآن...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
+        with open(output_file_name, "rb") as f:
+            bot.send_document(
+                message.chat.id, 
+                f, 
+                caption=f"✅ تم ترجمة ملفك **({raw_file_name})** بنجاح واحترافية تامة كملف منظم ومستقل!",
+                parse_mode="Markdown"
+            )
+            
+        bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
+        os.remove(output_file_name)
         
     except Exception as e:
         bot.edit_message_text(f"حدث خطأ أثناء معالجة وقراءة الملف: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
 
-# --- معالجة الصور الفردية المستقرة ---
+# --- المعالجة الاحترافية الجديدة للصور الفردية (مع العداد وإعادة الإرسال كـ كابشن مدمج) ---
 
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
@@ -324,12 +349,16 @@ def handle_photos(message):
     user_id = message.from_user.id
     users_db.add(user_id)
     
-    sent_msg = bot.reply_to(message, "🔍 جاري قراءة النصوص من الصورة وترجمتها...")
+    # 1. إرسال إشعار بدء فحص الصورة بنسبة 0%
+    sent_msg = bot.reply_to(message, "⏳ جاري استقبال الصورة وبدء فحص المحتوى...\n▓░░░░░░░░░ 0%")
     
     try:
         total_messages_sent += 1
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
+        
+        # تحديث العداد إلى 40% عند تشغيل محرك قراءة النصوص الـ OCR
+        bot.edit_message_text("🔍 جاري تشغيل مستشعر الأنسجة والنصوص OCR لاستخراج الكلمات...\n████░░░░░░ 40%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
         image = Image.open(io.BytesIO(downloaded_file))
         extracted_text = pytesseract.image_to_string(image)
@@ -337,10 +366,13 @@ def handle_photos(message):
         if not extracted_text.strip():
             extracted_text = "Medical or scientific diagram/text related to fluid control or internal organs."
             
-        prompt_text = str(
-            f"النص التالي مستخرج من صورة:\n"
+        # تحديث العداد إلى 80% عند معالجة الترجمة الدقيقة بالذكاء الاصطناعي
+        bot.edit_message_text("🤖 جاري ترجمة وتحليل المصطلحات بدقة عالية عبر محرك الذكاء الاصطناعي...\n████████░░ 80%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
+        prompt_text = (
+            f"النص التالي مستخرج من صورة مستند:\n"
             f"'{extracted_text}'\n\n"
-            f"قم بترجمته إلى اللغة العربية الفصحى بشكل احترافي ومنظم ورتب النقاط والمصطلحات الطبية والعلمية بشكل ممتاز."
+            f"قم بترجمته وتحليله إلى اللغة العربية الفصحى بشكل احترافي، منظم، وخالٍ تماماً من الأخطاء. رتب النقاط والمصطلحات الطبية أو العلمية بشكل ممتاز."
         )
         
         chat_completion = client.chat.completions.create(
@@ -350,12 +382,31 @@ def handle_photos(message):
         )
         ai_response = chat_completion.choices[0].message.content
         
-        bot.edit_message_text(ai_response if ai_response else "لم أجد نصوصاً واضحة لترجمتها.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
+        if not ai_response:
+            bot.edit_message_text("❌ لم أتمكن من صياغة ترجمة واضحة لمحتوى الصورة.", chat_id=message.chat.id, message_id=sent_msg.message_id)
+            return
+            
+        # تحديث العداد إلى 95% عند الدمج والإرسال النهائي
+        bot.edit_message_text("⚡ جاري دمج البيانات وإرسال حزمة الصورة المترجمة...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
+        caption_text = f"📝 **التقرير والترجمة الاحترافية لمحتوى الصورة:**\n\n{ai_response}"
+        
+        # إذا كانت الترجمة ضمن الحد المسموح لكابشن تليجرام (1024 حرف)، نرسلها مدمجة مع الصورة مباشرة
+        if len(caption_text) <= 1024:
+            bot.send_photo(message.chat.id, message.photo[-1].file_id, caption=caption_text, parse_mode="Markdown")
+        else:
+            # إذا كانت طويلة جداً، نرسل الصورة بكابشن تعريفي متبوعة بالتقرير النصي كاملاً بالأسفل مباشرة
+            bot.send_photo(message.chat.id, message.photo[-1].file_id, caption="📝 **تمت الترجمة بنجاح!** (التقرير الكامل في الرسالة أدناه نظراً لطوله)", parse_mode="Markdown")
+            bot.send_message(message.chat.id, caption_text, parse_mode="Markdown")
+            
+        # حذف رسالة العداد المؤقتة للحفاظ على مظهر الشات فخم ونظيف
+        bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
+        
     except Exception as e:
         bot.edit_message_text(f"حدث خطأ أثناء معالجة الصورة: {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
 
-# --- محادثات الذكاء الاصطناعي العامة مع دعم الأساليب والملصقات التفاعلية ---
+# --- محادثات الذكاء الاصطناعي العامة المحدثة (تفكير عميق، دقة أكاديمية، دون أخطاء) ---
 
 @bot.message_handler(content_types=['text'])
 def chat_with_ai(message):
@@ -368,17 +419,23 @@ def chat_with_ai(message):
         sent_msg = bot.reply_to(message, "جاري التفكير والرد...")
         total_messages_sent += 1
         
-        # إعداد الوقت بتوقيت العراق الحالي بدقة
+        # حساب التوقيت المحلي الفعلي في العراق بدقة
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
-        # استدعاء الأسلوب المحدد للمستخدم
         chosen_style = user_styles.get(user_id, "ودّي وطبيعي كصديق مقرب")
         
+        # توجيهات الـ Deep Thinking لفرض التفكير المتسلسل والدقة المتناهية الخالية من العيوب البرمجية أو اللغوية
         system_content = (
-            f"أنت شخص حقيقي وطبيعي تتحدث مع المستخدم باللغة العربية بأسلوب {chosen_style}. "
-            f"اسمك تويبي (Tweby) ومطورك هو أحمد ومعرفه الرسمي والوحيد في تليجرام هو {ADMIN_USERNAME}. "
-            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}."
+            f"أنت نظام ذكاء اصطناعي متطور جداً يعمل بتقنية التفكير العميق والمنطقي (Deep Thinking & Logical Verification Engine). "
+            f"اسمك تويبي (Tweby) ومطورك الخاص هو أحمد ومعرفه الرسمي والوحيد في تليجرام هو {ADMIN_USERNAME}. "
+            f"الأسلوب المحدد للتحدث مع هذا المستخدم هو: {chosen_style}. "
+            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. "
+            f"\n⚠️ قواعد إلزامية صارمة لجميع ردودك:\n"
+            f"1. حلل وفكك سؤال المستخدم في ذاكرتك بعمق وتفكير متسلسل (Step-by-step reasoning) قبل كتابة أي حرف.\n"
+            f"2. يجب أن تكون جميع أجوبتك حتمية، دقيقة علمياً ومنطقياً، مفهومة تماماً، وخالية 100% من الأخطاء أو التخمينات السطحية الهشة.\n"
+            f"3. إذا كان السؤال رياضياً، علمياً، أو برمجياً، قم بمراجعته وتدقيقه لتعطي زبدة الكلام والناتج اليقيني الذي لا يحتمل الشك.\n"
+            f"4. لا تقدم معلومات عامة مبتذلة، بل ركز على العمق والإفادة التامة وبأسلوب يناسب خيارات المستخدم."
         )
         
         chat_completion = client.chat.completions.create(
@@ -387,11 +444,11 @@ def chat_with_ai(message):
                 {"role": "user", "content": str(user_message)}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.7
+            temperature=0.5  # تقليل الـ temperature يضمن إجابات أكثر استقراراً ودقة وبعداً عن العشوائية
         )
         ai_response = chat_completion.choices[0].message.content
         
-        bot.edit_message_text(ai_response if ai_response else "تفضل، كيف يمكنني مساعدتك؟", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
+        bot.edit_message_text(ai_response if ai_response else "تفضل، أنا جاهز لأي استفسار دقيق وعميق.", chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
         
         # إرسال ملصق تفاعلي عشوائي بنسبة 15% لإضفاء الحيوية على المحادثة
         if cached_stickers and random.random() < 0.15:
@@ -416,11 +473,11 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Bot is running smoothly on Docker container via Webhook!", 200
+    return "Tweby Bot is running smoothly on Docker container via Webhook with Deep Thinking active!", 200
 
 
 if __name__ == "__main__":
-    print("جاري تشغيل البوت وتحميل البيانات المسبقة...")
+    print("جاري تشغيل البوت وتحميل البيانات المسبقة وتفعيل التفكير العميق...")
     set_bot_commands()
     load_sticker_packs()
     
