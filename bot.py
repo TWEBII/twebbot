@@ -6,6 +6,7 @@ import datetime
 import pytz
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from downloader import download_video
 
 # ================= الإعدادات الأساسية =================
 TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
@@ -25,7 +26,7 @@ STICKER_SETS = [
     "Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"
 ]
 
-# إعداد قائمة أوامر البوت الجانبية (Menu)
+# إعداد قائمة أوامر البوت الجانبية (Menu) في زاوية البوت
 try:
     bot.set_my_commands([
         BotCommand("/start", "رسالة البدء")
@@ -108,6 +109,8 @@ def build_user_keyboard():
                InlineKeyboardButton("التواصل 📣", callback_data="user_menu_contact"))
     markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="user_menu_support"),
                InlineKeyboardButton("دليل الاستخدام ❓", callback_data="user_menu_guide"))
+    # إضافة زر التحميل فوق زر الترجمة تماماً كما طلبت
+    markup.row(InlineKeyboardButton("تحميل من السوشيال ميديا 📥", callback_data="user_menu_download_guide"))
     markup.row(InlineKeyboardButton("ترجمة صور ومستندات 📸", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
     
     db = load_db()
@@ -122,12 +125,18 @@ def get_user_back_button():
 
 def edit_user_interface(call, text, markup):
     try:
-        bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-    except:
-        try:
+        if call.message.photo:
+            bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        else:
             bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-        except Exception as e:
-            pass
+    except Exception as e:
+        try:
+            if call.message.photo:
+                bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+            else:
+                bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+        except Exception as ex:
+            print(f"Interface Edit Error: {ex}")
 
 # ================= دوال الذكاء الاصطناعي والمساعدات =================
 def send_random_sticker(chat_id):
@@ -181,7 +190,7 @@ def start_command(message):
         bot.send_message(user_id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
 
-    # إرسال ملصق عشوائي ترحيبي
+    # إرسال ملصق عشوائي ترحيبي مع كل start
     send_random_sticker(user_id)
 
     if user_id not in db["users"]:
@@ -207,6 +216,38 @@ def start_command(message):
                 bot.send_photo(user_id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
         else:
             bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
+
+# ================= معالج روابط السوشيال ميديا للتحميل (الخطوة الثالثة) =================
+@bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
+def handle_social_links(message):
+    if "translate.google.com" in message.text:
+        return
+        
+    db = load_db()
+    user_id = message.chat.id
+    
+    if str(user_id) in db.get("banned_users", []): return
+    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
+    
+    bot.send_chat_action(user_id, 'upload_video')
+    sent_msg = bot.reply_to(message, "⏳ جاري استخراج المعالجة والتحميل من الرابط، يرجى الانتظار قليلاً...")
+    
+    file_path = download_video(message.text.strip())
+    
+    if file_path and os.path.exists(file_path):
+        try:
+            with open(file_path, 'rb') as f:
+                bot.send_video(user_id, f, caption="✅ تم التحميل بنجاح عبر بوت TWEB")
+            bot.delete_message(user_id, sent_msg.message_id)
+        except Exception as e:
+            bot.edit_message_text("⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً.", user_id, sent_msg.message_id)
+        
+        try:
+            os.remove(file_path)
+        except:
+            pass
+    else:
+        bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", user_id, sent_msg.message_id)
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -245,7 +286,7 @@ def callback_handler(call):
     user_id = call.message.chat.id
     db = load_db()
 
-    # ---------------- أزرار المستخدمين (متاحة للجميع الآن) ----------------
+    # ---------------- أزرار المستخدمين ----------------
     if call.data == "user_back_home":
         bot.answer_callback_query(call.id)
         edit_user_interface(call, db.get("start_text"), build_user_keyboard())
@@ -284,6 +325,15 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار)، وسيقوم بتطبيقها فوراً.")
         bot.register_next_step_handler(msg, process_user_instructions)
+
+    elif call.data == "user_menu_download_guide":
+        bot.answer_callback_query(call.id)
+        dl_text = (
+            "📥 **قسم التحميل من السوشيال ميديا**\n\n"
+            "لكي تقوم بتحميل أي فيديو أو ملف:\n"
+            "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة!"
+        )
+        edit_user_interface(call, dl_text, get_user_back_button())
 
     # ---------------- أزرار لوحة التحكم الخاصة بالمطور أحمد ----------------
     if str(user_id) == ADMIN_ID:
@@ -429,7 +479,7 @@ def process_ban_action(message, mode_ban=True):
             save_db(db)
             bot.reply_to(message, f"🟢 تم إلغاء حظر `{target}`.", parse_mode="Markdown")
 
-# ================= معالجة الرسائل النصية =================
+# ================= معالجة الرسائل النصية العامة =================
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 def handle_user_messages(message):
     db = load_db()
@@ -493,5 +543,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تفعيل البوت بالتحديثات الجديدة الشاملة (Menu + Stickers + Translation + Buttons)")
+    print("تم تفعيل البوت بكافة التحديثات الشاملة (Menu + Stickers + Translation + Downloader)")
     bot.infinity_polling()
