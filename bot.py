@@ -4,16 +4,14 @@ import random
 import time
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, request
+from flask import Flask, request, render_template_string
 from groq import Groq
-import pypdf
 import pytesseract
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 import fitz  # PyMuPDF
 import telebot
 from telebot import types
 import requests
-import numpy as np
 
 # إعدادات البوت والربط الثابتة
 GROQ_API_KEY = "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"
@@ -21,7 +19,6 @@ TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
-GOOGLE_TRANSLATE_URL = "https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"
 
 POSSIBLE_SYSTEM_FONTS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -38,8 +35,8 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة.\n\n"
-    "🌐 تم ربط البوت مباشرة بخدمات ترجمة جوجل (Google Translate Documents & Web) لتوفير أزرار سريعة تضمن لك ترجمة مطابقة تماماً للموقع الرسمي!\n"
-    "أرسل صورتك أو ملفك الآن أو اضغط على الزر أدناه:"
+    "🌐 تم تصميم واجهة مشابهة تماماً لتصميم متصفح ترجمة جوجل داخل البوت تحت اسم **TWEB**.\n"
+    "اضغط على الزر أدناه لفتح واجهة التصفح والترجمة الفورية:"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -76,7 +73,6 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    # معالجة آمنة ونظيفة للصور بدون تشويش الحواف
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     w, h = img.size
     img_processed = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
@@ -114,7 +110,6 @@ def translate_image_core(image_bytes):
         if not arabic_text:
             continue
             
-        # رسم مستطيل خلفية بلون موحد نظيف جداً لمنع أي تشويش
         draw.rectangle([x - 2, y - 2, x + bw + 2, y + bh + 2], fill=(30, 30, 30))
         font = get_working_font(max(10, int(bh * 0.7)))
         draw.text((x, y), arabic_text, fill=(255, 255, 255), font=font)
@@ -135,21 +130,63 @@ def set_bot_commands():
 def send_welcome(message):
     user_id = message.from_user.id
     users_db.add(user_id)
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل (Documents)", url=GOOGLE_TRANSLATE_URL),
-        types.InlineKeyboardButton("🖼 ترجمة الصور داخل البوت", callback_data="translate_photos_info"),
-        types.InlineKeyboardButton("📁 ترجمة ملفات PDF", callback_data="translate_files_info")
-    )
-    bot.reply_to(message, custom_start_message, reply_markup=markup)
+    
+    # تصميم زر Web App بنفس تصميم جوجل وباسم TWEB
+    markup = types.InlineKeyboardMarkup()
+    web_app = types.WebAppInfo(url=f"{RAILWAY_URL}/webapp")
+    markup.add(types.InlineKeyboardButton("🌐 TWEB - متصفح الترجمة", web_app=web_app))
+    
+    bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    if call.data == "translate_photos_info":
-        bot.answer_callback_query(call.id, "أرسل صورتك الآن وسيقوم البوت بمعالجتها وترجمتها بوضوح!", show_alert=True)
-    elif call.data == "translate_files_info":
-        bot.answer_callback_query(call.id, "أرسل ملف PDF لترجمته بالكامل!", show_alert=True)
+@server.route("/webapp")
+def webapp_view():
+    # تصميم شبيه بصفحة ترجمة جوجل المطلوبة بالصورة تماماً
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TWEB Translate</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8f9fa; margin: 0; padding: 0; color: #202124; }
+            header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #dadce0; background: #fff; }
+            .logo { font-weight: bold; font-size: 18px; color: #1a73e8; display: flex; align-items: center; gap: 8px; }
+            .tabs { display: flex; justify-content: space-around; padding: 10px; background: #fff; border-bottom: 1px solid #dadce0; }
+            .tab { padding: 8px 16px; border-radius: 20px; background: #e8f0fe; color: #1a73e8; font-size: 14px; font-weight: 500; cursor: pointer; border: none; }
+            .lang-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; font-weight: 500; border-bottom: 1px solid #dadce0; }
+            .content-box { padding: 30px 20px; text-align: center; }
+            .upload-btn { background: #1a73e8; color: white; border: none; padding: 12px 24px; border-radius: 4px; font-size: 16px; font-weight: 500; cursor: pointer; margin-top: 15px; width: 100%; max-width: 300px; }
+            .footer-info { margin-top: 20px; font-size: 13px; color: #5f6368; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="logo">🌐 TWEB Translate</div>
+        </header>
+        <div class="tabs">
+            <button class="tab">📄 المستندات</button>
+            <button class="tab" style="background: transparent; color: #5f6368;">🖼 صور</button>
+            <button class="tab" style="background: transparent; color: #5f6368;">🌐 مواقع</button>
+        </div>
+        <div class="lang-bar">
+            <span>التعرّف التلقائي على اللغة</span>
+            <span>⇄</span>
+            <span>العربية</span>
+        </div>
+        <div class="content-box">
+            <h3>اختَر ملفّاً.</h3>
+            <button class="upload-btn" onclick="alert('أرسل الملف أو الصورة مباشرة داخل محادثة البوت في التليجرام ليتم ترجمتها فوراً!')">تصفُّح الملفات</button>
+            <div class="footer-info">
+                أنواع الملفات المتوافقة: .docx, .pdf, .pptx, .xlsx<br><br>
+                <span>مطور بواسطة TWEB</span>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(html_template)
 
 
 @bot.message_handler(content_types=['document'])
@@ -159,7 +196,7 @@ def handle_documents(message):
     users_db.add(user_id)
     raw_file_name = message.document.file_name
     if not raw_file_name.lower().endswith('.pdf'):
-        bot.reply_to(message, "❌ عذراً، البوت يدعم ملفات الـ PDF فقط. أو يمكنك استخدام موقع جوجل المباشر عبر أمر /start.")
+        bot.reply_to(message, "❌ عذراً، البوت يدعم ملفات الـ PDF فقط.")
         return
         
     sent_msg = bot.reply_to(message, "⏳ جاري بدء معالجة صفحات الملف...")
@@ -186,7 +223,8 @@ def handle_documents(message):
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل للملفات", url=GOOGLE_TRANSLATE_URL))
+        web_app = types.WebAppInfo(url=f"{RAILWAY_URL}/webapp")
+        markup.add(types.InlineKeyboardButton("🌐 فتح متصفح TWEB", web_app=web_app))
         
         with open(output_pdf_name, "rb") as f:
             bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح!", reply_markup=markup)
@@ -212,7 +250,8 @@ def handle_photos(message):
         translated_photo_bytes = translate_image_core(downloaded_file)
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🌐 فتح موقع ترجمة جوجل الرسمي", url=GOOGLE_TRANSLATE_URL))
+        web_app = types.WebAppInfo(url=f"{RAILWAY_URL}/webapp")
+        markup.add(types.InlineKeyboardButton("🌐 فتح متصفح TWEB", web_app=web_app))
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
@@ -254,7 +293,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Google Translate Linked Running Smoothly!", 200
+    return "TWEB Google Translate WebApp Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
