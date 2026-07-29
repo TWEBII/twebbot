@@ -8,7 +8,7 @@ from flask import Flask, request
 from groq import Groq
 import pypdf
 import pytesseract
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import fitz  # PyMuPDF
 import telebot
 from telebot import types
@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 تم تفعيل نظام دمج الكتل (Blocks) لمسح وترجمة كافة النصوص الإنجليزية بالكامل وبدقة فائقة.\n"
+    "🛠 تم تفعيل وضع التكبير وتحسين دقة محرك الكشف (Tesseract PSM 6) لالتقاط كافة النصوص الصغيرة والمتداخلة.\n"
     "أرسل صورتك الآن!"
 )
 
@@ -76,17 +76,23 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 def translate_image_core(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    
+    # تكبير الصورة بنسبة 2x لرفع دقة قراءة الكلمات الصغيرة جداً بواسطة Tesseract
+    w, h = img.size
+    img_resized = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+    
     draw = ImageDraw.Draw(img)
     
     try:
-        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+        # استخدام إعدادات مخصصة لضمان قراءة الأسطر المتداخلة بدقة عالية
+        custom_config = r'--psm 6'
+        data = pytesseract.image_to_data(img_resized, output_type=pytesseract.Output.DICT, config=custom_config)
     except Exception:
         return image_bytes
         
     n_boxes = len(data['text'])
     blocks = {}
     
-    # تجميع النصوص بناءً على رقم الكتلة (block_num) لضمان أخذ الفقرة كاملاً وعدم ترك أجزاء معلقة
     for i in range(n_boxes):
         text = data['text'][i].strip()
         if not text:
@@ -106,10 +112,11 @@ def translate_image_core(image_bytes):
         if not full_block_text or len(full_block_text) < 2:
             continue
             
-        lefts = [data['left'][idx] for idx in indices]
-        tops = [data['top'][idx] for idx in indices]
-        rights = [data['left'][idx] + data['width'][idx] for idx in indices]
-        bottoms = [data['top'][idx] + data['height'][idx] for idx in indices]
+        # إعادة الإحداثيات للحجم الأصلي للصورة (قسمة على 2)
+        lefts = [data['left'][idx] // 2 for idx in indices]
+        tops = [data['top'][idx] // 2 for idx in indices]
+        rights = [(data['left'][idx] + data['width'][idx]) // 2 for idx in indices]
+        bottoms = [(data['top'][idx] + data['height'][idx]) // 2 for idx in indices]
         
         x1, y1 = max(0, min(lefts) - 6), max(0, min(tops) - 4)
         x2, y2 = min(img.width, max(rights) + 6), min(img.height, max(bottoms) + 4)
@@ -138,7 +145,6 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح الكتلة الإنجليزية القديمة بالكامل باللون المستخرج من الخلفية
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         box_h = y2 - y1
@@ -224,7 +230,7 @@ def handle_documents(message):
         translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         
         with open(output_pdf_name, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بنجاح ودعم كتل النصوص الكاملة!")
+            bot.send_document(message.chat.id, f, caption="✅ تم ترجمة الملف بالكامل وبدقة فائقة!")
             
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         doc.close()
@@ -248,7 +254,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح ومسح كافة النصوص الإنجليزية بالكامل!",
+            caption="✅ تمت الترجمة بنجاح والتقاط كافة النصوص بدقة كاملة!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -285,7 +291,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Block-Level Translation Running Smoothly!", 200
+    return "Tweby High-Res PSM6 Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
