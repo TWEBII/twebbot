@@ -5,10 +5,8 @@ import telebot
 from telebot import types
 from datetime import datetime, timedelta
 
-# إعدادات المفاتيح والروابط
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-RAILWAY_URL = "https://twebbot-production.up.railway.app"
 ADMIN_CHAT_ID = 8411608232 
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -22,7 +20,7 @@ def send_welcome(message):
     
     welcome_text = (
         "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي هنا على تليجرام.\n\n"
-        "🌐 لترجمة المستندات والملفات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:\n\n"
+        "🌐 لترجمة المستندات والمقالات والصور بدقة كاملة عبر موقع جوجل، اضغط على الزر أدناه:\n\n"
         "🛠 معلومات المطور والقنوات:\n"
         "• المطور: أحمد (@TWEBii)\n"
         "• القنوات الرسمية:\n"
@@ -69,9 +67,9 @@ def chat_with_ai(message):
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_data = request.get_json()
-        print(f"📥 البيانات الواردة من تيليجرام: {json_data}")
-        update = types.Update.de_json(json_data)
-        bot.process_new_updates([update])
+        if json_data:
+            update = types.Update.de_json(json_data)
+            bot.process_new_updates([update])
         return '', 200
     return 'Forbidden', 403
 
@@ -80,13 +78,5 @@ def index():
     return "TWEB Bot Server is active!", 200
 
 if __name__ == "__main__":
-    try:
-        bot.remove_webhook()
-        webhook_url = f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}"
-        bot.set_webhook(url=webhook_url)
-        print(f"🔗 تم ربط الـ Webhook بنجاح مع: {webhook_url}")
-    except Exception as e:
-        print(f"⚠️ خطأ في تعيين الـ Webhook: {e}")
-
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
