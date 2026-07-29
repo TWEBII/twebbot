@@ -1,292 +1,74 @@
 import sqlite3
-from threading import Lock
 
-DB_NAME = "bot.db"
+DB_NAME = "tweb_database.db"
 
-lock = Lock()
-
-
-class Database:
-
-    def __init__(self):
-        self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.create_tables()
-
-    def create_tables(self):
-
-        self.cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users(
-            user_id INTEGER PRIMARY KEY,
-            first_name TEXT,
-            username TEXT,
-            joined_at TEXT
+def initialize_db():
+    """إنشاء الجداول الافتراضية إذا ما كانت موجودة"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # جدول لحفظ الأيدي مال المستخدمين (للإحصائيات والإذاعة)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY
         )
-        """)
-
-        self.cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            role TEXT,
-            content TEXT,
-            created_at TEXT
-        )
-        """)
-
-        self.cursor.execute("""
-        CREATE TABLE IF NOT EXISTS stats(
+    ''')
+    
+    # جدول لحفظ الإعدادات مثل رسالة الترحيب start
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
-            value INTEGER
+            value TEXT
         )
-        """)
-
-        self.conn.commit()
-
-    # ===========================
-    # المستخدمون
-    # ===========================
-
-    def add_user(self, user):
-
-        with lock:
-
-            self.cursor.execute("""
-
-            INSERT OR IGNORE INTO users
-
-            VALUES(
-                ?,
-                ?,
-                ?,
-                datetime('now')
-            )
-
-            """,
-
-            (
-
-                user.id,
-
-                user.first_name,
-
-                user.username
-
-            ))
-
-            self.conn.commit()
-
-    def get_users(self):
-
-        self.cursor.execute(
-
-            "SELECT user_id FROM users"
-
-        )
-
-        return [
-
-            x[0]
-
-            for x in self.cursor.fetchall()
-
-        ]
-
-    def total_users(self):
-
-        self.cursor.execute(
-
-            "SELECT COUNT(*) FROM users"
-
-        )
-
-        return self.cursor.fetchone()[0]
-
-    # ===========================
-    # الرسائل
-    # ===========================
-
-    def save_message(
-
-        self,
-
-        user_id,
-
-        role,
-
-        content
-
-    ):
-
-        with lock:
-
-            self.cursor.execute("""
-
-            INSERT INTO messages(
-
-                user_id,
-
-                role,
-
-                content,
-
-                created_at
-
-            )
-
-            VALUES(
-
-                ?,
-
-                ?,
-
-                ?,
-
-                datetime('now')
-
-            )
-
-            """,
-
-            (
-
-                user_id,
-
-                role,
-
-                content
-
-            ))
-
-            self.conn.commit()
-
-    def get_history(
-
-        self,
-
-        user_id,
-
-        limit=10
-
-    ):
-
-        self.cursor.execute("""
-
-        SELECT
-
-            role,
-
-            content
-
-        FROM messages
-
-        WHERE user_id=?
-
-        ORDER BY id DESC
-
-        LIMIT ?
-
-        """,
-
-        (
-
-            user_id,
-
-            limit
-
-        ))
-
-        rows = self.cursor.fetchall()
-
-        rows.reverse()
-
-        history = []
-
-        for role, content in rows:
-
-            history.append({
-
-                "role": role,
-
-                "content": content
-
-            })
-
-        return history
-
-    # ===========================
-    # الإحصائيات
-    # ===========================
-
-    def increase(
-
-        self,
-
-        key
-
-    ):
-
-        self.cursor.execute("""
-
-        INSERT INTO stats(
-
-            key,
-
-            value
-
-        )
-
-        VALUES(
-
-            ?,
-
-            1
-
-        )
-
-        ON CONFLICT(key)
-
-        DO UPDATE
-
-        SET value=value+1
-
-        """,
-
-        (
-
-            key,
-
-        ))
-
-        self.conn.commit()
-
-    def get_stat(
-
-        self,
-
-        key
-
-    ):
-
-        self.cursor.execute(
-
-            "SELECT value FROM stats WHERE key=?",
-
-            (
-
-                key,
-
-            )
-
-        )
-
-        row = self.cursor.fetchone()
-
-        if row:
-
-            return row[0]
-
-        return 0
-
-
-db = Database()
+    ''')
+    
+    # نخلي رسالة ترحيب افتراضية أول ما يشتغل البوت
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('start_message', 'أهلاً بك في بوت TWEB للذكاء الاصطناعي! كيف يمكنني مساعدتك اليوم؟')")
+    
+    conn.commit()
+    conn.close()
+
+def add_user(user_id):
+    """إضافة مستخدم جديد لقاعدة البيانات"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_users_count():
+    """حساب عدد المشتركين بالبوت (للإحصائيات)"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def get_all_users():
+    """جلب كل أيدي المستخدمين (للإذاعة)"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users")
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+def get_start_message():
+    """جلب رسالة الترحيب الحالية"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key = 'start_message'")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row[0]
+    return "أهلاً بك في بوت TWEB!"
+
+def set_start_message(text):
+    """تحديث رسالة الترحيب من لوحة التحكم"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('start_message', ?)", (text,))
+    conn.commit()
+    conn.close()
