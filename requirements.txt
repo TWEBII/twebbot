@@ -1,3 +1,4 @@
 pyTelegramBotAPI
 groq
 pytz
+yt-dlp
