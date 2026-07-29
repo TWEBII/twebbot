@@ -2,12 +2,15 @@ import os
 import random
 import threading
 from datetime import datetime, timedelta
+from flask import Flask, request
 from groq import Groq
 import telebot
 from telebot import types
 
+# إعدادات المفاتيح والروابط
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
+RAILWAY_URL = "https://twebbot-production.up.railway.app"
 ADMIN_CHAT_ID = 8411608232 
 
 STICKER_PACK_NAMES = [
@@ -31,8 +34,9 @@ custom_start_message = (
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+server = Flask(__name__)
 
-def load_sticker_packs():
+def load_sticker_packs_background():
     global cached_stickers
     all_stickers = []
     for pack_name in STICKER_PACK_NAMES:
@@ -91,7 +95,7 @@ def show_admin_panel(chat_id, msg_id=None, is_new=True):
         f"📊 إحصائيات اليوم:\n"
         f"👥 إجمالي المستخدمين: {len(users_db)}\n"
         f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-        f"⚡️ حالة البوت: يعمل بكفاءة عالية (Polling & Groq)\n"
+        f"⚡️ حالة البوت: يعمل بكفاءة عالية (Webhook & Groq)\n"
         f"📅 التاريخ: {today_date}"
     )
     
@@ -188,7 +192,7 @@ def chat_with_ai(message):
     users_db.add(user_id)
     user_message = message.text
     
-    print(f"تم استقبال رسالة نصية من المستخدم: {user_message}")
+    print(f"تم استقبال رسالة نصية: {user_message}")
 
     try:
         sent_msg = bot.reply_to(message, "جاري الرد...")
@@ -203,7 +207,6 @@ def chat_with_ai(message):
             f"الوقت الحالي في العراق: {current_time_str}. أجب باختصار ووضوح."
         )
 
-    # استخدام ملف Procfile بصيغة: web: python bot.py (تم تعديل الكود ليعمل بنظام Polling المباشر)
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_content},
@@ -223,12 +226,32 @@ def chat_with_ai(message):
         except:
             pass
 
-if __name__ == "__main__":
-    load_sticker_packs()
+@server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
+def redirect_message():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return '', 403
+
+@server.route("/")
+def index():
+    return "TWEB Google Translate Bot Running Smoothly!", 200
+
+def set_bot_webhook():
     try:
         bot.remove_webhook()
-        print("تم إزالة الـ Webhook بنجاح والبدء بنظام الاستماع المباشر (Polling)...")
+        webhook_url = f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}"
+        bot.set_webhook(url=webhook_url)
+        print(f"تم تعيين الـ Webhook بنجاح إلى: {webhook_url}")
     except Exception as e:
-        print(f"Webhook remove error: {e}")
-        
-    bot.infinity_polling(skip_pending=True)
+        print(f"Webhook setting error: {e}")
+
+if __name__ == "__main__":
+    threading.Thread(target=load_sticker_packs_background).start()
+    threading.Thread(target=set_bot_webhook).start()
+    
+    port = int(os.environ.get("PORT", 8080))
+    server.run(host='0.0.0.0', port=port)
