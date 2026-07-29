@@ -5,6 +5,7 @@ import telebot
 from telebot import types
 from datetime import datetime, timedelta
 
+# إعدادات المفاتيح والروابط
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
@@ -30,7 +31,7 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.message_handler(content_types=['text'])
+@bot.message_handler(func=lambda message: True)
 def chat_with_ai(message):
     user_message = message.text
     chat_id = message.chat.id
@@ -64,7 +65,6 @@ def chat_with_ai(message):
         except:
             pass
 
-# مطابقة مسار الـ Flask تماماً مع التوكن لضمان التقاط الطلبات القادمة من تليجرام
 @server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -72,7 +72,7 @@ def webhook():
         update = types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return '', 200
-    return '', 403
+    return 'Forbidden', 403
 
 @server.route("/")
 def index():
