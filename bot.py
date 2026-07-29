@@ -37,7 +37,7 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🚀 تم تحديث نظام تجميع الأسطر بـ psm 6 لضمان ترجمة الفقرات والخطوط بشكل سليم ومنظم تماماً!\n"
+    "🚀 تم ضبط نظام الترجمة ليعمل ببساطة ونظافة تامة مثل ترجمة Google!\n"
     "أرسل صورتك الآن!"
 )
 
@@ -77,12 +77,12 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 def translate_image_core(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     w, h = img.size
-    img_processed = img.resize((w * 3, h * 3), Image.Resampling.LANCZOS)
-    img_processed = ImageOps.autocontrast(img_processed)
+    img_processed = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
     
     draw = ImageDraw.Draw(img)
     
-    config = r'--oem 3 --psm 6'
+    # استخدام psm 3 لاستخراج الكتل النصية بوضوح تام
+    config = r'--oem 3 --psm 3'
     try:
         data = pytesseract.image_to_data(img_processed, config=config, output_type=pytesseract.Output.DICT)
     except Exception:
@@ -99,7 +99,7 @@ def translate_image_core(image_bytes):
             conf = int(data['conf'][i])
         except:
             conf = 50
-        if conf < 20:
+        if conf < 15:
             continue
             
         b_id = data['block_num'][i]
@@ -107,10 +107,10 @@ def translate_image_core(image_bytes):
         l_id = data['line_num'][i]
         key = (b_id, p_id, l_id)
         
-        x = data['left'][i] // 3
-        y = data['top'][i] // 3
-        bw = data['width'][i] // 3
-        bh = data['height'][i] // 3
+        x = data['left'][i] // 2
+        y = data['top'][i] // 2
+        bw = data['width'][i] // 2
+        bh = data['height'][i] // 2
         
         if key not in lines_dict:
             lines_dict[key] = {'x1': x, 'y1': y, 'x2': x + bw, 'y2': y + bh, 'words': []}
@@ -125,11 +125,11 @@ def translate_image_core(image_bytes):
         
     for key, line_info in lines_dict.items():
         full_line_text = " ".join(line_info['words']).strip()
-        if len(full_line_text) < 3:
+        if len(full_line_text) < 2:
             continue
             
         x1, y1, x2, y2 = line_info['x1'], line_info['y1'], line_info['x2'], line_info['y2']
-        if (x2 - x1) < 15 or (y2 - y1) < 8:
+        if (x2 - x1) < 10 or (y2 - y1) < 6:
             continue
             
         prompt = f"Translate the following English text into professional medical Arabic. Return ONLY the translated Arabic text, no explanations, no quotes:\n{full_line_text}"
@@ -150,10 +150,11 @@ def translate_image_core(image_bytes):
         img_np = np.array(box_region)
         bg_color = tuple(map(int, np.median(img_np, axis=(0, 1)))) if img_np.size > 0 else (20, 20, 20)
         
-        draw.rectangle([x1, y1, x2, y2], fill=bg_color)
+        # تغطية النص القديم بلون الخلفية بدقة
+        draw.rectangle([x1 - 2, y1 - 2, x2 + 2, y2 + 2], fill=bg_color)
         
         box_h = y2 - y1
-        font_size = min(16, max(10, int(box_h * 0.65)))
+        font_size = min(15, max(10, int(box_h * 0.7)))
         font = get_working_font(font_size)
         
         try:
@@ -256,7 +257,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح وبترتيب أسطر دقيق ومنظم!",
+            caption="✅ تمت الترجمة بنجاح وبشكل نظيف مثل ترجمة جوجل!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -293,7 +294,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Perfect Line-based Layout Running Smoothly!", 200
+    return "Tweby Clean Google-like Translation Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
