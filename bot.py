@@ -1,329 +1,767 @@
-import os
-import random
-from datetime import datetime, timedelta
+import sqlite3
+from threading import Lock
+
+DB_NAME = "data/bot.db"
+
+lock = Lock()
+
+
+class Database:
+
+    def __init__(self):
+        self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self.create_tables()
+
+    def create_tables(self):
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            user_id INTEGER PRIMARY KEY,
+            first_name TEXT,
+            username TEXT,
+            joined_at TEXT
+        )
+        """)
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            role TEXT,
+            content TEXT,
+            created_at TEXT
+        )
+        """)
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS stats(
+            key TEXT PRIMARY KEY,
+            value INTEGER
+        )
+        """)
+
+        self.conn.commit()
+
+    # =======================
+    # المستخدمين
+    # =======================
+
+    def add_user(self, user):
+
+        with lock:
+
+            self.cursor.execute("""
+            INSERT OR IGNORE INTO users
+            VALUES(?,?,?,datetime('now'))
+            """,
+            (
+                user.id,
+                user.first_name,
+                user.username
+            ))
+
+            self.conn.commit()
+
+    def total_users(self):
+
+        self.cursor.execute(
+            "SELECT COUNT(*) FROM users"
+        )
+
+        return self.cursor.fetchone()[0]
+
+    def get_users(self):
+
+        self.cursor.execute(
+            "SELECT user_id FROM users"
+        )
+
+        return [x[0] for x in self.cursor.fetchall()]
+
+    # =======================
+    # المحادثات
+    # =======================
+
+    def save_message(self,
+                     user_id,
+                     role,
+                     content):
+
+        with lock:
+
+            self.cursor.execute("""
+            INSERT INTO messages(
+                user_id,
+                role,
+                content,
+                created_at
+            )
+
+            VALUES(
+                ?,
+                ?,
+                ?,
+                datetime('now')
+            )
+
+            """,
+            (
+                user_id,
+                role,
+                content
+            ))
+
+            self.conn.commit()
+
+    def get_history(
+            self,
+            user_id,
+            limit=10):
+
+        self.cursor.execute("""
+
+        SELECT role,content
+
+        FROM messages
+
+        WHERE user_id=?
+
+        ORDER BY id DESC
+
+        LIMIT ?
+
+        """,
+        (
+            user_id,
+            limit
+        ))
+
+        rows = self.cursor.fetchall()
+
+        rows.reverse()
+
+        history = []
+
+        for role, content in rows:
+
+            history.append({
+                "role": role,
+                "content": content
+            })
+
+        return history
+
+    # =======================
+    # الإحصائيات
+    # =======================
+
+    def increase(self, key):
+
+        self.cursor.execute("""
+        INSERT INTO stats(key,value)
+
+        VALUES(?,1)
+
+        ON CONFLICT(key)
+
+        DO UPDATE SET
+
+        value=value+1
+        """, (key,))
+
+        self.conn.commit()
+
+    def get_stat(self, key):
+
+        self.cursor.execute(
+            "SELECT value FROM stats WHERE key=?",
+            (key,)
+        )
+
+        row = self.cursor.fetchone()
+
+        if row:
+            return row[0]
+
+        return 0
+
+
+db = Database()
 from groq import Groq
-import telebot
-from telebot import types
-
-# مفتاح Groq الخاص بك
-GROQ_API_KEY = "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"
-# توكن بوت التليجرام الخاص بك
-TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-# آيدي حسابك (المطور)
-ADMIN_CHAT_ID = 8411608232 
-
-# أسماء حزم الملصقات
-STICKER_PACK_NAMES = [
-    "Funnyye_by_maker_Sticker_bot",
-    "Life_by_maker_Sticker_bot"
-]
-cached_stickers = []
-message_counter = 0
-
-users_db = set()
-total_messages_sent = 0
-
-# رسالة البدء الافتراضية (قابلة للتعديل من لوحة التحكم)
-custom_start_message = (
-    "هلا بيك. أنا تويبي (Tweby)، مساعدك الشخصي هنا على تليجرام.\n\n"
-    "🛠 معلومات المطور والقنوات:\n"
-    "• المطور: أحمد (@TWEBii)\n"
-    "• القنوات الرسمية:\n"
-    "  - @lTelegramWeb\n"
-    "  - @TWEBiii\n\n"
-    "اسألني عن أي شي وتحت أمرك."
-)
+from config import GROQ_API_KEY, MODEL_NAME, TEMPERATURE
+from database import db
 
 client = Groq(api_key=GROQ_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
-# دالة لجلب ملصقات الحزمتين تلقائياً
-def load_sticker_packs():
-    global cached_stickers
-    all_stickers = []
-    for pack_name in STICKER_PACK_NAMES:
-        try:
-            pack = bot.get_sticker_set(pack_name)
-            stickers = [sticker.file_id for sticker in pack.stickers]
-            all_stickers.extend(stickers)
-            print(f"تم تحميل {len(stickers)} ملصقاً من الحزمة: {pack_name}")
-        except Exception as e:
-            print(f"فشل تحميل الحزمة {pack_name}: {e}")
-    cached_stickers = all_stickers
 
-# أمر البدء وترحيب المستخدمين
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    user = message.from_user
-    user_id = user.id
-    users_db.add(user_id)
-    
-    user_name = user.first_name if user.first_name else "مستخدم"
-    user_username = f"@{user.username}" if user.username else "بدون معرف"
+SYSTEM_PROMPT = """
+أنت مساعد ذكي اسمك Tweby.
 
-    markup = None
-    if user_id == ADMIN_CHAT_ID:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("⚙️ لوحة التحكم الإدارية", callback_data="admin_panel"))
+- تتحدث بالعربية بطلاقة.
+- إذا خاطبك المستخدم باللهجة العراقية يمكنك الرد باللهجة العراقية.
+- أجب باختصار إلا إذا طلب المستخدم شرحًا.
+- لا تقل أنك مجرد نموذج إلا إذا سُئلت مباشرة.
+- كن مهذبًا واحترافيًا.
+"""
 
-    bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
-    if user_id != ADMIN_CHAT_ID and message.chat.type == "private":
-        try:
-            notification = (
-                f"🚨 تنبيه دخول شخص جديد للبوت!\n\n"
-                f"👤 الاسم: {user_name}\n"
-                f"🔗 المعرف: {user_username}\n"
-                f"🆔 الأيدي: {user_id}"
-            )
-            bot.send_message(ADMIN_CHAT_ID, notification, parse_mode="Markdown")
-        except Exception as e:
-            print(f"فشل إرسال الإشعار: {e}")
+def ask_ai(user, text):
 
-# أمر لوحة التحكم للمطور
-@bot.message_handler(commands=['admin'])
-def admin_command(message):
-    if message.from_user.id == ADMIN_CHAT_ID:
-        show_admin_panel(message.chat.id, message.message_id, is_new=False)
-    else:
-        bot.reply_to(message, "عذراً، هذا الأمر مخصص للمطور فقط. ❌")
+    history = db.get_history(user.id)
 
-def show_admin_panel(chat_id, msg_id=None, is_new=True):
-    global total_messages_sent
-    iraq_time = datetime.utcnow() + timedelta(hours=3)
-    today_date = iraq_time.strftime("%Y-%m-%d")
-    
-    panel_text = (
-        f"🤖 لوحة التحكم الإدارية للبوت\n"
-        f"—————————————\n"
-        f"📊 إحصائيات اليوم:\n"
-        f"👥 إجمالي المستخدمين: {len(users_db)}\n"
-        f"💬 إجمالي الرسائل المعالجة: {total_messages_sent}\n"
-        f"⚡️ حالة البوت: يعمل بكفاءة عالية (Groq API)\n"
-        f"📅 التاريخ: {today_date}"
-    )
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("📢 إرسال إذاعة", callback_data="broadcast_start"),
-        types.InlineKeyboardButton("✏️ تعديل رسالة البدء", callback_data="edit_start_msg"),
-        types.InlineKeyboardButton("🔄 تحديث الإحصائيات", callback_data="refresh_panel"),
-        types.InlineKeyboardButton("❌ إغلاق القائمة", callback_data="close_panel")
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        }
+    ]
 
-)
-    
-    if is_new:
-        bot.send_message(chat_id, panel_text, parse_mode="Markdown", reply_markup=markup)
-    else:
-        try:
-            bot.edit_message_text(panel_text, chat_id=chat_id, message_id=msg_id, parse_mode="Markdown", reply_markup=markup)
-        except:
-            bot.send_message(chat_id, panel_text, parse_mode="Markdown", reply_markup=markup)
+    messages.extend(history)
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    global users_db
-    if call.from_user.id != ADMIN_CHAT_ID:
-        bot.answer_callback_query(call.id, "هذه القائمة للمطور فقط.", show_alert=True)
-        return
-
-    if call.data == "admin_panel" or call.data == "refresh_panel":
-        show_admin_panel(call.message.chat.id, call.message.message_id, is_new=False)
-        bot.answer_callback_query(call.id, "تم التحديث بنجاح.")
-
-    elif call.data == "close_panel":
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-
-    elif call.data == "broadcast_start":
-        msg = bot.send_message(call.message.chat.id, "أرسل الآن رسالة الإذاعة (نص، صورة، أو ملصق) ليتم إرسالها لجميع المستخدمين:")
-        bot.register_next_step_handler(msg, execute_broadcast)
-
-    elif call.data == "edit_start_msg":
-        msg = bot.send_message(call.message.chat.id, "أرسل النص الجديد لرسالة البدء (/start) الآن:")
-        bot.register_next_step_handler(msg, save_new_start_message)
-
-def save_new_start_message(message):
-    global custom_start_message
-    if message.from_user.id != ADMIN_CHAT_ID:
-        return
-    
-    custom_start_message = message.text
-    bot.reply_to(message, "تم تحديث رسالة البدء بنجاح.", parse_mode="Markdown")
-
-def execute_broadcast(message):
-    if message.from_user.id != ADMIN_CHAT_ID:
-        return
-    
-    sent_count = 0
-    fail_count = 0
-    status_msg = bot.reply_to(message, "جاري إرسال الإذاعة لجميع المستخدمين...")
-    
-    for uid in users_db:
-        try:
-            bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
-            sent_count += 1
-        except Exception:
-            fail_count += 1
-
-    bot.edit_message_text(
-        f"تمت الإذاعة بنجاح.\n\n"
-        f"📤 تم الإرسال إلى: {sent_count} مستخدم\n"
-        f"❌ فشل الإرسال إلى: {fail_count} مستخدم",
-        chat_id=message.chat.id,
-        message_id=status_msg.message_id,
-        parse_mode="Markdown"
-    )
-
-@bot.message_handler(content_types=['photo'])
-def handle_photos(message):
-    if message.chat.type == "private":
-        bot.reply_to(message, "وصلتني الصورة. يفضل مراسلتي بالكتابة أو بالملصقات.")
-
-@bot.message_handler(content_types=['sticker'])
-def handle_stickers(message):
-    if message.chat.type == "private":
-        responses = [
-            "ملصق جميل.",
-            "تسلم على الملصق.",
-            "حلوة هاي الحركة."
-        ]
-        bot.reply_to(message, random.choice(responses))
-        if cached_stickers and random.random() < 0.5:
-            bot.send_sticker(message.chat.id, random.choice(cached_stickers))
-
-# معالجة رسائل تليجرام الأعمال (Secretary Mode)
-@bot.business_message_handler(func=lambda message: True)
-def handle_business_message(message):
-    global message_counter, total_messages_sent
-    user_id = message.from_user.id
-    users_db.add(user_id)
-
-    user_message = message.text
-    if not user_message:
-        return
+    messages.append({
+        "role": "user",
+        "content": text
+    })
 
     try:
-        message_counter += 1
-        total_messages_sent += 1
-        
-        iraq_now = datetime.utcnow() + timedelta(hours=3)
-        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-        
-        system_content = (
-            f"أنت مساعد شخصي لحساب تليجرام أعمال خاص بالمطور أحمد. اسمك تويبي (Tweby). "
-            f"ألوبك هادئ، طبيعي، ووسط (لا رسمي جاف ولا تضحك بكثرة)، واستخدم الحد الأدنى من الإيموجي فقط عند الحاجة. "
 
-f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
-            f"أجب العميل بطريقة عملية ومختصرة. إذا ذكر اسم 'أحمد' أو المطور، فتحدث عنه بكل احترام وتقدير. وإذا ذكر البرتقال فأظهر انزعاجك منه بشكل مختصر."
+        response = client.chat.completions.create(
+
+            model=MODEL_NAME,
+
+            messages=messages,
+
+            temperature=TEMPERATURE
+
         )
 
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_message}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
+        answer = response.choices[0].message.content.strip()
+
+        db.save_message(
+            user.id,
+            "user",
+            text
         )
-        
-        ai_response = chat_completion.choices[0].message.content
-        
-        bot.send_message(
-            chat_id=message.chat.id, 
-            text=ai_response, 
-            parse_mode="Markdown",
-            reply_to_message_id=message.message_id
+
+        db.save_message(
+            user.id,
+            "assistant",
+            answer
         )
+
+        db.increase("messages")
+
+        return answer
 
     except Exception as e:
-        print(f"خطأ في معالجة رسالة الأعمال: {e}")
 
-# معالجة النصوص والذكاء الاصطناعي (للخاص والمجموعات)
-@bot.message_handler(content_types=['text'])
-def chat_with_ai(message):
-    global message_counter, total_messages_sent
-    user_id = message.from_user.id
-    users_db.add(user_id)
+        print(e)
 
-    user_message = message.text
-    chat_type = message.chat.type
+        return "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي."
+import telebot
 
-    # التحقق من شروط المجموعات
-    if chat_type in ["group", "supergroup"]:
-        is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
-        text_lower = user_message.lower()
-        
-        mentioned_bot = any(name in text_lower for name in ["تويب", "تويبي", "tweby"])
-        mentioned_dev = "احمد" in text_lower
+from config import ADMIN_ID
+from database import db
+from ai import ask_ai
 
-        if not is_reply_to_bot and not mentioned_bot and not mentioned_dev:
+
+def register_handlers(bot):
+
+    # ===========================
+    # START
+    # ===========================
+
+    @bot.message_handler(commands=["start"])
+    def start(message):
+
+        db.add_user(message.from_user)
+
+        text = (
+            "👋 أهلاً بك في Tweby AI\n\n"
+            "أنا مساعد ذكي يعمل بواسطة Groq.\n"
+            "أرسل أي سؤال وسأجيبك مباشرة."
+        )
+
+        bot.reply_to(message, text)
+
+    # ===========================
+    # HELP
+    # ===========================
+
+    @bot.message_handler(commands=["help"])
+    def help_command(message):
+
+        bot.reply_to(
+            message,
+            "أرسل أي رسالة وسأجيب عنها باستخدام الذكاء الاصطناعي."
+        )
+
+    # ===========================
+    # STATS
+    # ===========================
+
+    @bot.message_handler(commands=["stats"])
+    def stats(message):
+
+        if message.from_user.id != ADMIN_ID:
             return
 
-    try:
-        sent_msg = bot.reply_to(message, "جاري الرد...")
-        
-        message_counter += 1
-        total_messages_sent += 1
-        should_send_sticker = (message_counter >= 10 and len(cached_stickers) > 0) and chat_type == "private"
-        
-        iraq_now = datetime.utcnow() + timedelta(hours=3)
-        current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
-        
-        system_content = (
-            f"أنت شخص حقيقي وطبيعي تتحدث بأسلوب وسط ومهذب (لا رسمي منفر ولا ضحك ومزح زائد عن اللزوم)، واستخدم الحد الأدنى من الإيموجي وعند الحاجة فقط. "
-            f"اسمك تويبي (Tweby) ومطورك هو أحمد. "
-            f"الوقت والتاريخ الحاليان في العراق هما: {current_time_str}. إذا سأل أحد عن الوقت أو التاريخ أو السنة، أجب بدقة. "
-            f"إذا تم ذكر اسم 'أحمد' أو المطور، تحدث عنه بتقدير. "
-            f"لديك صفة خاصة: أنت تكره فاكهة 'البرتقال' وتعتبرها غير مفضلة، فإذا تم ذكرها أبدى انزعاجك البسيط منها. "
-            f"أجب باختصار ووضوح ودون تكلف."
+        users = db.total_users()
+
+        msgs = db.get_stat("messages")
+
+        text = f"""
+📊 الإحصائيات
+
+👥 المستخدمون:
+{users}
+
+💬 الرسائل:
+{msgs}
+"""
+
+        bot.reply_to(message, text)
+
+    # ===========================
+    # AI
+    # ===========================
+
+    @bot.message_handler(content_types=["text"])
+    def chat(message):
+
+        db.add_user(message.from_user)
+
+        # تجاهل أوامر أخرى
+
+        if message.text.startswith("/"):
+            return
+
+        # بالمجموعات
+
+        if message.chat.type != "private":
+
+            is_reply = False
+
+            if message.reply_to_message:
+
+                if message.reply_to_message.from_user.id == bot.get_me().id:
+
+                    is_reply = True
+
+            mention = False
+
+            txt = message.text.lower()
+
+            me = bot.get_me()
+
+            if me.username:
+
+                if "@"+me.username.lower() in txt:
+
+                    mention = True
+
+            if not is_reply and not mention:
+
+                return
+
+        wait = bot.reply_to(
+            message,
+            "⏳ جاري التفكير..."
         )
 
-        if should_send_sticker:
-            system_content += f"\nلديك قائمة ملصقات من 0 إلى {len(cached_stickers)-1}. بما أن هذا الرد رقم 10، اختر رقماً واحداً يناسب السياق وضعه حصراً هكذا [STICKER:رقم]."
+        try:
 
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_content,
-                },
-                {
-                    "role": "user",
-                    "content": user_message,
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
+            answer = ask_ai(
+                message.from_user,
+                message.text
+            )
+
+            bot.edit_message_text(
+
+                answer,
+
+                chat_id=message.chat.id,
+
+                message_id=wait.message_id
+
+            )
+
+        except Exception:
+
+            bot.edit_message_text(
+
+                "❌ حدث خطأ أثناء إنشاء الرد.",
+
+                chat_id=message.chat.id,
+
+                message_id=wait.message_id
+
+            )
+       from telebot import types
+
+from config import ADMIN_ID
+from database import db
+
+
+broadcast_mode = {}
+
+start_message = (
+    "👋 أهلاً بك في Tweby AI\n\n"
+    "أنا مساعد ذكي يعمل بواسطة Groq."
+)
+
+
+def register_admin(bot):
+
+    @bot.message_handler(commands=["admin"])
+    def admin(message):
+
+        if message.from_user.id != ADMIN_ID:
+            return
+
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                "📊 الإحصائيات",
+                callback_data="stats"
+            ),
+            types.InlineKeyboardButton(
+                "📢 إذاعة",
+                callback_data="broadcast"
+            )
         )
-        
-        ai_response = chat_completion.choices[0].message.content
-        
-        sticker_to_send = None
-        if should_send_sticker and "[STICKER:" in ai_response:
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                "✏️ رسالة البدء",
+                callback_data="startmsg"
+            )
+        )
+
+        bot.send_message(
+            message.chat.id,
+            "لوحة التحكم",
+            reply_markup=keyboard
+        )
+
+    @bot.callback_query_handler(func=lambda c: True)
+    def callback(call):
+
+        global start_message
+
+        if call.from_user.id != ADMIN_ID:
+            return
+
+        if call.data == "stats":
+
+            users = db.total_users()
+
+            msgs = db.get_stat("messages")
+
+            text = f"""
+👥 المستخدمون
+
+{users}
+
+💬 الرسائل
+
+{msgs}
+"""
+
+            bot.edit_message_text(
+                text,
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=call.message.reply_markup
+            )
+
+        elif call.data == "broadcast":
+
+            broadcast_mode[
+                call.from_user.id
+            ] = True
+
+            bot.send_message(
+                call.message.chat.id,
+                "📢 أرسل رسالة الإذاعة الآن."
+            )
+
+        elif call.data == "startmsg":
+
+            broadcast_mode[
+                call.from_user.id
+            ] = "start"
+
+            bot.send_message(
+                call.message.chat.id,
+                "✏️ أرسل رسالة البدء الجديدة."
+            )
+
+    @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID)
+    def admin_steps(message):
+
+        global start_message
+
+        if message.from_user.id not in broadcast_mode:
+            return
+
+        mode = broadcast_mode.pop(
+            message.from_user.id
+        )
+
+        if mode == True:
+
+            ok = 0
+
+            fail = 0
+
+            for user in db.get_users():
+
+                try:
+
+                    bot.copy_message(
+                        user,
+                        message.chat.id,
+                        message.message_id
+                    )
+
+                    ok += 1
+
+                except:
+
+                    fail += 1
+
+            bot.send_message(
+
+                ADMIN_ID,
+
+                f"""✅ انتهت الإذاعة
+
+تم الإرسال:
+{ok}
+
+فشل:
+{fail}
+"""
+
+            )
+
+        elif mode == "start":
+
+            start_message = message.text
+
+            bot.send_message(
+
+                ADMIN_ID,
+
+                "✅ تم تغيير رسالة البدء."
+
+            )
+from database import db
+
+broadcast_waiting = set()
+
+
+def register_broadcast(bot, ADMIN_ID):
+
+    @bot.message_handler(commands=["broadcast"])
+    def broadcast(message):
+
+        if message.from_user.id != ADMIN_ID:
+            return
+
+        broadcast_waiting.add(message.from_user.id)
+
+        bot.reply_to(
+            message,
+            "📢 أرسل الرسالة التي تريد إرسالها لجميع المستخدمين."
+        )
+
+    @bot.message_handler(
+        func=lambda m: m.from_user.id in broadcast_waiting,
+        content_types=[
+            "text",
+            "photo",
+            "video",
+            "document",
+            "sticker",
+            "audio",
+            "voice"
+        ]
+    )
+    def send_broadcast(message):
+
+        broadcast_waiting.remove(message.from_user.id)
+
+        users = db.get_users()
+
+        success = 0
+        failed = 0
+
+        progress = bot.send_message(
+            message.chat.id,
+            "⏳ جاري الإرسال..."
+        )
+
+        for uid in users:
+
             try:
-                parts = ai_response.split("[STICKER:")
-                ai_response = parts[0].strip()
-                sticker_part = parts[1].split("]")[0].strip()
-                sticker_index = int(sticker_part)
-                if 0 <= sticker_index < len(cached_stickers):
-                    sticker_to_send = cached_stickers[sticker_index]
-                    message_counter = 0
-            except Exception as ex:
-                print(f"خطأ في استخراج الملصق: {ex}")
 
-bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
-        
-        if sticker_to_send and chat_type == "private":
-            bot.send_sticker(message.chat.id, sticker_to_send)
+                bot.copy_message(
+                    chat_id=uid,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
 
-    except Exception as e:
-        bot.reply_to(message, f"حدث خطأ بسيط: {str(e)}")
+                success += 1
 
-if name == "main":
-    print("Bot is running...")
-    load_sticker_packs()
-    bot.remove_webhook()
-    bot.infinity_polling()
+            except Exception:
+                failed += 1
+
+        bot.edit_message_text(
+
+            f"""✅ انتهت الإذاعة
+
+👥 عدد المستخدمين:
+{len(users)}
+
+📨 تم الإرسال:
+{success}
+
+❌ فشل:
+{failed}
+""",
+
+            chat_id=message.chat.id,
+
+            message_id=progress.message_id
+
+        )
+        import random
+
+stickers = []
+
+
+def load_stickers(bot, packs):
+
+    global stickers
+
+    stickers.clear()
+
+    for pack in packs:
+
+        try:
+
+            s = bot.get_sticker_set(pack)
+
+            for sticker in s.stickers:
+
+                stickers.append(
+                    sticker.file_id
+                )
+
+        except Exception as e:
+
+            print(e)
+
+    print(
+        f"Loaded {len(stickers)} stickers."
+    )
+
+
+def send_random(bot, chat_id):
+
+    if not stickers:
+        return
+
+    bot.send_sticker(
+
+        chat_id,
+
+        random.choice(stickers)
+
+    )from datetime import datetime, timedelta
+
+
+def iraq_time():
+
+    return datetime.utcnow() + timedelta(hours=3)
+
+
+def now():
+
+    return iraq_time().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def safe_markdown(text: str):
+
+    chars = [
+        "_",
+        "*",
+        "[",
+        "]",
+        "(",
+        ")",
+        "~",
+        "`",
+        ">",
+        "#",
+        "+",
+        "-",
+        "=",
+        "|",
+        "{",
+        "}",
+        ".",
+        "!"
+    ]
+
+    for c in chars:
+        text = text.replace(c, "\\" + c)
+
+    return text
+import telebot
+
+from config import (
+    BOT_TOKEN,
+    STICKER_PACKS,
+    ADMIN_ID
+)
+
+from handlers import register_handlers
+from admin import register_admin
+from broadcast import register_broadcast
+from stickers import load_stickers
+
+bot = telebot.TeleBot(
+    BOT_TOKEN,
+    parse_mode="Markdown"
+)
+
+register_handlers(bot)
+
+register_admin(bot)
+
+register_broadcast(
+    bot,
+    ADMIN_ID
+)
+
+load_stickers(
+    bot,
+    STICKER_PACKS
+)
+
+print("================================")
+print(" Tweby AI Started Successfully ")
+print("================================")
+
+bot.remove_webhook()
+
+bot.infinity_polling(
+    timeout=60,
+    long_polling_timeout=60,
+    skip_pending=True
+)
