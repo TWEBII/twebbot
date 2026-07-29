@@ -4,8 +4,10 @@ import threading
 from flask import Flask, request, render_template_string, jsonify
 from groq import Groq
 import telebot
+from telebot import types
 from PIL import Image
 import pytesseract
+import fitz  # PyMuPDF
 import numpy as np
 
 # إعدادات البوت والربط الثابتة
@@ -98,12 +100,12 @@ def webapp_view():
             <span>العربية</span>
         </div>
         <div class="content-box">
-            <h3 id="instruction-text">اختر صورة أو ملفاً للترجمة.</h3>
+            <h3 id="instruction-text">اختر صورة أو ملفاً (PDF) للترجمة.</h3>
             <label class="upload-btn">
                 تصفُّح الملفات والصور
                 <input type="file" id="fileInput" accept="image/*,.pdf" onchange="uploadFile()">
             </label>
-            <div id="loading">⏳ جاري معالجة الترجمة بدقة عالية...</div>
+            <div id="loading">⏳ جاري معالجة الملف أو الصورة وترجمتها بدقة...</div>
             <div id="result-container">
                 <h4>نتيجة الترجمة:</h4>
                 <p id="result-text" style="white-space: pre-wrap; font-size: 15px;"></p>
@@ -166,15 +168,26 @@ def api_translate():
         
         file = request.files['file']
         file_bytes = file.read()
+        filename = file.filename.lower()
         
-        # تحليل الصورة واستخراج النصوص وترجمتها عبر Llama / Tesseract داخل المتصفح حصراً
-        img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-        text = pytesseract.image_to_string(img)
+        extracted_text = ""
         
-        if not text.strip():
-            return jsonify({'success': True, 'translation': 'لم يتم العثور على نص واضح داخل الصورة.'})
+        # معالجة ملفات الـ PDF باستخدام PyMuPDF (التحديث القديم الأساسي)
+        if filename.endswith('.pdf'):
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            for page in doc:
+                extracted_text += page.get_text() + "\n"
+            doc.close()
+        else:
+            # معالجة الصور عبر Tesseract (التحديث القديم)
+            img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+            extracted_text = pytesseract.image_to_string(img)
+        
+        if not extracted_text.strip():
+            return jsonify({'success': True, 'translation': 'لم يتم العثور على نص واضح داخل الملف أو الصورة.'})
             
-        prompt = f"Translate the following English text into professional Arabic. Return ONLY the translated text:\n{text}"
+        # الترجمة عبر ذكاء Llama
+        prompt = f"Translate the following English text into professional Arabic. Return ONLY the translated text:\n{extracted_text}"
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="llama-3.3-70b-versatile",
@@ -196,7 +209,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "TWEB WebApp Translate Running Smoothly!", 200
+    return "TWEB WebApp Translate with PDF & Images Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
