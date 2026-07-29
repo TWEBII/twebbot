@@ -1,78 +1,41 @@
+import config
 from groq import Groq
 
-from config import (
-    GROQ_API_KEY,
-    MODEL_NAME,
-    TEMPERATURE,
-    MAX_HISTORY
-)
+# تهيئة عميل Groq باستخدام المفتاح اللي حفظناه بملف الإعدادات
+client = Groq(api_key=config.GROQ_API_KEY)
 
-from database import db
-
-client = Groq(
-    api_key=GROQ_API_KEY
-)
-
-SYSTEM_PROMPT = """
-أنت مساعد ذكي اسمك Tweby.
-
-- تتحدث بالعربية بطلاقة.
-- إذا تحدث المستخدم باللهجة العراقية، رد باللهجة العراقية.
-- كن مهذبًا ومختصرًا.
-- إذا طلب شرحًا مفصلًا، قدمه.
-- لا تذكر أنك نموذج ذكاء اصطناعي إلا إذا سُئلت مباشرة.
-"""
-
-
-def ask_ai(user, text):
-
-    history = db.get_history(
-        user.id,
-        MAX_HISTORY
-    )
-
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ]
-
-    messages.extend(history)
-
-    messages.append({
-        "role": "user",
-        "content": text
-    })
-
+def generate_ai_response(user_text):
+    """إرسال رسالة المستخدم للذكاء الاصطناعي وجلب رد دقيق ومؤكد"""
     try:
-
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            temperature=TEMPERATURE
+        # هنا نحدد شخصية البوت وطريقة تفكيره لضمان أعلى دقة
+        system_instruction = (
+            f"أنت مساعد ذكي ومحترف جداً تدعى {config.BOT_NAME}. "
+            "مهمتك الأساسية هي الإجابة بدقة عالية جداً وتقديم إجابات منطقية، علمية، ومؤكدة بنسبة 100%. "
+            "قبل أن تجيب على أي سؤال، قم بمراجعة المعلومات داخلياً وتأكد من صحتها تماماً. "
+            "إذا لم تكن متأكداً من معلومة أو كانت تخمينية، وضح ذلك بصراحة للمستخدم ولا تخترع إجابات من عندك. "
+            "تحدث باللغة العربية بأسلوب واضح ومفهوم ومباشر."
         )
 
-        answer = response.choices[0].message.content
-
-        db.save_message(
-            user.id,
-            "user",
-            text
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_instruction
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+            # نستخدم نموذج Llama 3 القوي والسريع من Groq
+            model="llama3-8b-8192", 
+            # تقليل الـ temperature إلى 0.2 يجعل الإجابات أكثر واقعية ودقة وأقل عشوائية
+            temperature=0.2, 
         )
-
-        db.save_message(
-            user.id,
-            "assistant",
-            answer
-        )
-
-        db.increase("messages")
-
-        return answer
+        
+        # إرجاع النص المستلم من الذكاء الاصطناعي
+        return chat_completion.choices[0].message.content
 
     except Exception as e:
-
-        print(e)
-
-        return "❌ حدث خطأ أثناء الاتصال بخدمة الذكاء الاصطناعي."
+        # في حال حدوث أي خطأ بالاتصال بالـ API
+        return f"عذراً، حدث خطأ أثناء معالجة الطلب: {e}"
