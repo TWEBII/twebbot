@@ -32,7 +32,6 @@ def send_welcome(message):
     user_id = message.from_user.id
     users_db.add(user_id)
     
-    # استخدام رابط موقع جوجل مباشرة بدون iframe لتجنب حظر 403
     markup = types.InlineKeyboardMarkup()
     web_app = types.WebAppInfo(url="https://translate.google.com/?hl=ar")
     markup.add(types.InlineKeyboardButton("🌐 فتح مترجم جوجل الرسمي", web_app=web_app))
@@ -40,7 +39,6 @@ def send_welcome(message):
     bot.reply_to(message, custom_start_message, parse_mode="Markdown", reply_markup=markup)
 
 
-# توجيه أي صورة أو ملف لفتح الموقع مباشرة
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_restricted_media(message):
     markup = types.InlineKeyboardMarkup()
@@ -49,9 +47,18 @@ def handle_restricted_media(message):
     bot.reply_to(message, "⚠️ يرجى استخدام زر **مترجم جوجل الرسمي** بالأسفل لرفع الصور أو المستندات وترجمتها مباشرة هناك.", reply_markup=markup)
 
 
+# مسار استقبال تحديثات تليجرام لمنع أخطاء 404
+@server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
+def redirect_message():
+    json_string = request.get_data().decode('utf-8')
+    update = types.Update.de_json(json_string)
+    threading.Thread(target=bot.process_new_updates, args=([update],)).start()
+    return "!", 200
+
+
 @server.route("/")
 def index():
-    return "TWEB Google Translate Direct Link Running Smoothly!", 200
+    return "TWEB Google Translate Bot Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
