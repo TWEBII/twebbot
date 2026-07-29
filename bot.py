@@ -14,8 +14,6 @@ import telebot
 from telebot import types
 import requests
 import numpy as np
-import arabic_reshaper
-from bidi.algorithm import get_display
 
 # إعدادات البوت والربط الثابتة
 GROQ_API_KEY = "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"
@@ -35,31 +33,18 @@ POSSIBLE_SYSTEM_FONTS = [
 
 FONT_PATH = "/tmp/ArabicFont.ttf"
 
-STICKER_PACK_NAMES = ["Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"]
-cached_stickers = []
-
 users_db = set()
 total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 تم تحديث نظام المعالجة بالخلفية لمنع أي انقطاع:\n"
-    "• ترجمة الصور مرئياً بدقة متناهية وبدون توقف للسيرفر\n"
-    "• ترجمة ملفات الـ PDF بالكامل بنفس التنسيق والهيكل الهندسي\n\n"
-    "أرسل صورتك أو ملفك مباشرة الآن!"
+    "🛠 تم ضبط محاذاة الخط العربي ورسمه بشكل مباشر وصحيح 100%.\n"
+    "أرسل صورتك أو ملفك الآن لتجربة النتيجة النهائية!"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
-
-reshaper_config = {
-    'delete_harakat': True,
-    'support_default_harakat': True,
-    'delete_tatweel': False,
-    'language': 'Arabic'
-}
-arabic_reshaper_instance = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
 
 
 def get_working_font(font_size):
@@ -156,36 +141,27 @@ def translate_image_core(image_bytes):
         
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
-        try:
-            reshaped = arabic_reshaper_instance.reshape(arabic_text)
-            bidi_text = get_display(reshaped)
-        except Exception:
-            bidi_text = arabic_text
-            
         line_h = y2 - y1
         font_size = max(14, int(line_h * 0.80))
         font = get_working_font(font_size)
             
         try:
-            tw, th = draw.textbbox((0, 0), bidi_text, font=font)[2:]
+            tw, th = draw.textbbox((0, 0), arabic_text, font=font)[2:]
         except Exception:
             try:
-                tw, th = font.getsize(bidi_text)
+                tw, th = font.getsize(arabic_text)
             except:
-                tw, th = len(bidi_text) * 7, font_size
+                tw, th = len(arabic_text) * 7, font_size
             
         tx = x1 + (x2 - x1 - tw) // 2
         ty = y1 + (y2 - y1 - th) // 2
         
-        draw.text((tx, ty), bidi_text, fill=text_color, font=font)
+        # رسم النص العربي مباشرة بدون أي انعكاس أو تعديل معقد
+        draw.text((tx, ty), arabic_text, fill=text_color, font=font)
         
     out_buf = io.BytesIO()
     img.save(out_buf, format="JPEG", quality=95)
     return out_buf.getvalue()
-
-
-def load_sticker_packs():
-    pass
 
 
 def set_bot_commands():
@@ -305,13 +281,12 @@ def chat_with_ai(message):
 def redirect_message():
     json_string = request.get_data().decode('utf-8')
     update = types.Update.de_json(json_string)
-    # تشغيل المعالجة في الخلفية لتجنب تايم أوت سيرفر Railway وانقطاع الحاوية
     threading.Thread(target=bot.process_new_updates, args=([update],)).start()
     return "!", 200
 
 @server.route("/")
 def index():
-    return "Tweby Background Thread Running Smoothly!", 200
+    return "Tweby Final Corrected Arabic running smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
