@@ -40,13 +40,11 @@ def register_handlers(bot):
         # إذا ضغط على زر الإذاعة
         elif call.data == "panel_broadcast":
             msg = bot.send_message(call.message.chat.id, "📢 أرسل الرسالة التي تريد إذاعتها لجميع المستخدمين الآن:")
-            # ننتظر الرسالة الجاية من المطور ونوديها لدالة الإذاعة
             bot.register_next_step_handler(msg, process_broadcast)
             
         # إذا ضغط على زر تغيير رسالة الترحيب
         elif call.data == "panel_edit_start":
             msg = bot.send_message(call.message.chat.id, "📝 أرسل رسالة الترحيب (Start) الجديدة:")
-            # ننتظر الرسالة الجاية من المطور ونوديها لدالة التعديل
             bot.register_next_step_handler(msg, process_edit_start)
 
     # دالة تنفيذ الإذاعة
@@ -64,7 +62,7 @@ def register_handlers(bot):
                 bot.send_message(user, text)
                 success += 1
             except:
-                pass # نتجاهل المستخدم إذا كان حاظر البوت
+                pass 
         
         bot.reply_to(message, f"تمت الإذاعة بنجاح لـ {success} مستخدمين. ✅")
 
@@ -81,11 +79,6 @@ def register_handlers(bot):
     # 3. التعامل مع باقي الرسائل (الذكاء الاصطناعي)
     @bot.message_handler(func=lambda message: True)
     def handle_ai_chat(message):
-        # نرسل حالة "يكتب..." للمستخدم
         bot.send_chat_action(message.chat.id, 'typing')
-        
-        # نجيب الجواب الدقيق والمؤكد من ملف ai.py
         reply_text = ai.generate_ai_response(message.text)
-        
-        # نرسل الجواب
         bot.reply_to(message, reply_text)
