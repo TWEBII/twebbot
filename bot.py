@@ -42,8 +42,8 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
-# دالة لجلب ملصقات الحزمتين تلقائياً
-def load_sticker_packs():
+# دالة لجلب ملصقات الحزمتين في الخلفية لعدم إبطاء السيرفر
+def load_sticker_packs_background():
     global cached_stickers
     all_stickers = []
     for pack_name in STICKER_PACK_NAMES:
@@ -51,7 +51,7 @@ def load_sticker_packs():
             pack = bot.get_sticker_set(pack_name)
             stickers = [sticker.file_id for sticker in pack.stickers]
             all_stickers.extend(stickers)
-        except Exception as e:
+        except Exception:
             pass
     cached_stickers = all_stickers
 
@@ -82,7 +82,7 @@ def send_welcome(message):
                 f"🆔 الأيدي: {user_id}"
             )
             bot.send_message(ADMIN_CHAT_ID, notification, parse_mode="Markdown")
-        except Exception as e:
+        except Exception:
             pass
 
 # أمر لوحة التحكم للمطور
@@ -223,7 +223,7 @@ def chat_with_ai(message):
         message_counter += 1
         total_messages_sent += 1
         
-        iraq_now = datetime.utcnow() + timedelta(hours=3)
+        iraq_now = datetime.utcnow() + timedelta(hours+3 if 'hours+3' in globals() else 3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
         system_content = (
@@ -243,7 +243,7 @@ def chat_with_ai(message):
         ai_response = chat_completion.choices[0].message.content
         bot.edit_message_text(ai_response, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode="Markdown")
 
-    except Exception as e:
+    except Exception:
         bot.edit_message_text(f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}", chat_id=message.chat.id, message_id=sent_msg.message_id)
 
 # مسار استقبال تحديثات تليجرام (Webhook)
@@ -261,9 +261,10 @@ def redirect_message():
 def index():
     return "TWEB Google Translate Bot Running Smoothly!", 200
 
-# تعيين الـ Webhook تلقائياً وبشكل آمن عند بدء التشغيل
 if __name__ == "__main__":
-    load_sticker_packs()
+    # تشغيل جلب الملصقات في خلفية منفصلة لكي لا يتوقف السيرفر بسبب البطء
+    threading.Thread(target=load_sticker_packs_background).start()
+    
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}")
