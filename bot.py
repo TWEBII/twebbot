@@ -1,14 +1,12 @@
-import base64
 import io
-import logging
 import os
 import random
 from datetime import datetime, timedelta
-import pypdf  # بدلاً من PyMuPDF لتجنب مشاكل التثبيت على السيرفر
 from flask import Flask, request
 from groq import Groq
-import pytesseract  # استخراج النصوص من الصور
-from PIL import Image  # للتعامل مع الصور
+import pypdf
+import pytesseract
+from PIL import Image
 import telebot
 from telebot import types
 
@@ -454,7 +452,7 @@ def execute_broadcast(message):
   )
 
 
-# --- معالجة الملفات (PDF / TXT) باستخدام pypdf ---
+# --- معالجة الملفات (PDF / TXT) مع استخراج النصوص التلقائي في حال كان الـ PDF صوراً ---
 @bot.message_handler(content_types=["document"])
 def handle_documents(message):
   global total_messages_sent
@@ -481,10 +479,20 @@ def handle_documents(message):
           extracted_full_text += (
               f"\n--- الصفحة {page_num + 1} ---\n" + page_text
           )
-        else:
-          extracted_full_text += (
-              f"\n--- الصفحة {page_num + 1} (فارغة أو صورة) ---\n"
-          )
+
+      # إذا كان الـ PDF عبارة عن صور (بدون نص رقمي)، نقوم باستخراج النصوص بالأداة الذكية
+      if not extracted_full_text.strip():
+        try:
+          import pypdfium2 as pdfium  # محاولة تحويل صفحات الـ PDF إلى صور لقراءتها
+
+          pdf = pdfium.PdfDocument(downloaded_file)
+          for i, page in enumerate(pdf):
+            image = page.render(scale=2).to_pil()
+            ocr_text = pytesseract.image_to_string(image)
+            if ocr_text.strip():
+              extracted_full_text += f"\n--- صفحة PDF مصورة {i + 1} ---\n{ocr_text}"
+        except Exception:
+          pass
 
     elif file_name.endswith(".txt"):
       extracted_full_text = downloaded_file.decode("utf-8", errors="ignore")
@@ -498,7 +506,7 @@ def handle_documents(message):
 
     if not extracted_full_text.strip():
       bot.edit_message_text(
-          "عذراً، الملف الذي أرسلته لا يحتوي على نصوص مقروءة.",
+          "عذراً، هذا الملف عبارة عن صور غير مقروءة، يرجى إرسال الصورة مباشرة.",
           chat_id=message.chat.id,
           message_id=sent_msg.message_id,
       )
@@ -531,7 +539,7 @@ def handle_documents(message):
     )
 
 
-# --- معالجة الصور المباشرة (استخراج النص عبر OCR وترجمته بذكاء) ---
+# --- معالجة الصور المباشرة (حل نهائي لمشكلة الـ string) ---
 @bot.message_handler(content_types=["photo"])
 def handle_photos(message):
   global total_messages_sent
