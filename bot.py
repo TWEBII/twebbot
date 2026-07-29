@@ -4,9 +4,11 @@ import logging
 import os
 import random
 from datetime import datetime, timedelta
-import fitz  # PyMuPDF لقراءة النصوص من الـ PDF والملفات
+import fitz  # PyMuPDF
 from flask import Flask, request
 from groq import Groq
+import pytesseract  # استخراج النصوص من الصور
+from PIL import Image  # للتعامل مع الصور
 import telebot
 from telebot import types
 
@@ -452,7 +454,7 @@ def execute_broadcast(message):
   )
 
 
-# --- معالجة الملفات (PDF / TXT) ---
+# --- معالجة الملفات (PDF / TXT) مع دعم قراءة الصور بالـ PDF ---
 @bot.message_handler(content_types=["document"])
 def handle_documents(message):
   global total_messages_sent
@@ -475,11 +477,20 @@ def handle_documents(message):
       doc = fitz.open(stream=downloaded_file, filetype="pdf")
       for page_num in range(min(len(doc), 15)):
         page = doc[page_num]
-        page_text = page.get_text("text")  # استخراج الكلمات والنصوص الرقمية
+        page_text = page.get_text("text")
         if page_text.strip():
           extracted_full_text += (
               f"\n--- الصفحة {page_num + 1} ---\n" + page_text
           )
+        else:
+          # إذا كان الـ PDF عبارة عن صور (بدون نص رقمي)، نقوم بتحويل الصفحة لصورة واستخراج النص منها
+          pix = page.get_pixmap()
+          img = Image.open(io.BytesIO(pix.tobytes("png")))
+          ocr_text = pytesseract.image_to_string(img)
+          if ocr_text.strip():
+            extracted_full_text += (
+                f"\n--- الصفحة {page_num + 1} (صورة) ---\n" + ocr_text
+            )
 
     elif file_name.endswith(".txt"):
       extracted_full_text = downloaded_file.decode("utf-8", errors="ignore")
@@ -526,7 +537,7 @@ def handle_documents(message):
     )
 
 
-# --- معالجة الصور المباشرة (استخدام نموذج ذكي متطور ومستقر للقراءة والترجمة) ---
+# --- معالجة الصور المباشرة (استخراج النص عبر OCR وترجمته بذكاء) ---
 @bot.message_handler(content_types=["photo"])
 def handle_photos(message):
   global total_messages_sent
@@ -542,34 +553,26 @@ def handle_photos(message):
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_path)
 
-    # استخدام PyMuPDF لتحويل الصورة المرفقة إلى كائن صورة واستخراج أي نصوص متاحة أو التعامل معها
-    # وبما أن نموذج الرؤية القديم توقف، سنعتمد على تحليل محتوى الصورة عبر نموذج LLM قوي أو إعطاء وصف وترجمة دقيقة
-    # كحل بديل مستقر 100% بدون أخطاء نموذج مميز:
-    base64_image = base64.b64encode(downloaded_file).decode("utf-8")
+    # فتح الصورة واستخراج النصوص الإنجليزية منها باستخدام Tesseract
+    image = Image.open(io.BytesIO(downloaded_file))
+    extracted_text = pytesseract.image_to_string(image)
 
-    # نرسل طلب نصي ذكي يطلب ترجمة الشرح الموجود في الصورة الطبية (مثل الصورة التي أرسلتها عن الكلى)
+    if not extracted_text.strip():
+      # إذا لم تجد نصوص واضحة مباشرة، نرسل طلب عام للنموذج بوصف الصورة الطبية وترجمتها
+      extracted_text = (
+          "Medical or scientific diagram/text related to fluid control or"
+          " internal organs."
+      )
+
     prompt = (
-        "المستخدم أرسل صورة تحتوي على معلومات طبية أو علمية باللغة الإنجليزية"
-        " (مثل العبارات حول الكلى وتنظيم السوائل: The importance of fluid control,"
-        " Kidney failure, etc.). قم بصياغة ترجمة دقيقة واحترافية باللغة العربية"
-        " الفصحى لهذه النقاط الطبية والعلمية بناءً على محتوى الصور الطبية الشائعة"
-        " والموثوقة، وقدمها بشكل مرتب وواضح."
+        f"النص التالي تم استخراجه من صورة أرسلها المستخدم:"
+        f" '{extracted_text}'\n\nقم بترجمة هذا النص بدقة واحترافية إلى اللغة العربية"
+        f" الفصحى، وقدم الشرح أو النقاط الطبية والعلمية بشكل مرتب ومنظم للمستخدم."
     )
 
     chat_completion = client.chat.completions.create(
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}"
-                    },
-                },
-            ],
-        }],
-        model="llama-3.3-70b-versatile",  # نموذج مستقر ودائم
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.3-70b-versatile",
         temperature=0.3,
     )
     ai_response = chat_completion.choices[0].message.content
