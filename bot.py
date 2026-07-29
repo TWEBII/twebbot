@@ -1,17 +1,14 @@
 import os
-from flask import Flask, request
+from datetime import datetime, timedelta
 from groq import Groq
 import telebot
 from telebot import types
-from datetime import datetime, timedelta
 
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-ADMIN_CHAT_ID = 8411608232 
 
 client = Groq(api_key=GROQ_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, threaded=False)
-server = Flask(__name__)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -58,25 +55,9 @@ def chat_with_ai(message):
 
     except Exception as e:
         print(f"❌ خطأ في الرد: {e}")
-        try:
-            bot.send_message(chat_id, f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}")
-        except:
-            pass
-
-@server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_data = request.get_json()
-        if json_data and 'message' in json_data:
-            message = types.Message.de_json(json_data['message'])
-            chat_with_ai(message)
-        return '', 200
-    return 'Forbidden', 403
-
-@server.route("/")
-def index():
-    return "TWEB Bot Server is active!", 200
+        bot.send_message(chat_id, f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    server.run(host='0.0.0.0', port=port)
+    print("🤖 جاري تشغيل البوت بنجاح...")
+    bot.remove_webhook()
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)
