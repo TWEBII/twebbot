@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from datetime import datetime, timedelta
-import fitz  # PyMuPDF
+import pypdf  # بدلاً من PyMuPDF لتجنب مشاكل التثبيت على السيرفر
 from flask import Flask, request
 from groq import Groq
 import pytesseract  # استخراج النصوص من الصور
@@ -454,7 +454,7 @@ def execute_broadcast(message):
   )
 
 
-# --- معالجة الملفات (PDF / TXT) مع دعم قراءة الصور بالـ PDF ---
+# --- معالجة الملفات (PDF / TXT) باستخدام pypdf ---
 @bot.message_handler(content_types=["document"])
 def handle_documents(message):
   global total_messages_sent
@@ -474,23 +474,17 @@ def handle_documents(message):
     extracted_full_text = ""
 
     if file_name.endswith(".pdf"):
-      doc = fitz.open(stream=downloaded_file, filetype="pdf")
-      for page_num in range(min(len(doc), 15)):
-        page = doc[page_num]
-        page_text = page.get_text("text")
-        if page_text.strip():
+      reader = pypdf.PdfReader(io.BytesIO(downloaded_file))
+      for page_num, page in enumerate(reader.pages):
+        page_text = page.extract_text()
+        if page_text and page_text.strip():
           extracted_full_text += (
               f"\n--- الصفحة {page_num + 1} ---\n" + page_text
           )
         else:
-          # إذا كان الـ PDF عبارة عن صور (بدون نص رقمي)، نقوم بتحويل الصفحة لصورة واستخراج النص منها
-          pix = page.get_pixmap()
-          img = Image.open(io.BytesIO(pix.tobytes("png")))
-          ocr_text = pytesseract.image_to_string(img)
-          if ocr_text.strip():
-            extracted_full_text += (
-                f"\n--- الصفحة {page_num + 1} (صورة) ---\n" + ocr_text
-            )
+          extracted_full_text += (
+              f"\n--- الصفحة {page_num + 1} (فارغة أو صورة) ---\n"
+          )
 
     elif file_name.endswith(".txt"):
       extracted_full_text = downloaded_file.decode("utf-8", errors="ignore")
@@ -553,12 +547,10 @@ def handle_photos(message):
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_path)
 
-    # فتح الصورة واستخراج النصوص الإنجليزية منها باستخدام Tesseract
     image = Image.open(io.BytesIO(downloaded_file))
     extracted_text = pytesseract.image_to_string(image)
 
     if not extracted_text.strip():
-      # إذا لم تجد نصوص واضحة مباشرة، نرسل طلب عام للنموذج بوصف الصورة الطبية وترجمتها
       extracted_text = (
           "Medical or scientific diagram/text related to fluid control or"
           " internal organs."
