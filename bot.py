@@ -1,19 +1,27 @@
 import os
-from flask import Flask, request
+import threading
+from flask import Flask
 from groq import Groq
 import telebot
 from telebot import types
 from datetime import datetime, timedelta
 
-# إعدادات المفاتيح والروابط
+# إعدادات المفاتيح
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
-RAILWAY_URL = "https://twebbot-production.up.railway.app"
 ADMIN_CHAT_ID = 8411608232 
 
 client = Groq(api_key=GROQ_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, threaded=False)
-server = Flask(__name__)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive and running via Polling!", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -36,16 +44,15 @@ def chat_with_ai(message):
     user_message = message.text
     chat_id = message.chat.id
     
-    print(f"استقبلت نص من أحمد: {user_message}")
+    print(f"استقبلت رسالة من أحمد: {user_message}")
 
     try:
-        # إرسال رسالة مؤقتة تدل على جاري الرد
         processing_msg = bot.send_message(chat_id, "جاري الرد...")
         
         iraq_now = datetime.utcnow() + timedelta(hours=3)
         current_time_str = iraq_now.strftime("%Y-%m-%d %I:%M:%S %p")
         
-        system_content = f"أنت مساعد شخصي تدعى تويبي (Tweby) ومطورك هو أحمد. الوقت الحالي في العراق: {current_time_str}. أجب باختصار ووضوح باللغة العربية."
+        system_content = f"أنت مساعد شخصي تدعى تويبي (Tweby) ومطورك هو أحمد. الوقت الحالي في العراق: {current_time_str}. أجب باختصار ووضوح."
 
         chat_completion = client.chat.completions.create(
             messages=[
@@ -57,40 +64,29 @@ def chat_with_ai(message):
         )
         
         ai_response = chat_completion.choices[0].message.content
-        
-        # تعديل رسالة "جاري الرد..." بالرد القادم من الذكاء الاصطناعي
         bot.edit_message_text(ai_response, chat_id=chat_id, message_id=processing_msg.message_id, parse_mode="Markdown")
 
     except Exception as e:
-        print(f"حدث خطأ: {e}")
+        print(f"خطأ في الرد: {e}")
         try:
             bot.send_message(chat_id, f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}")
         except:
             pass
 
-@server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
-def redirect_message():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    return '', 403
-
-@server.route("/")
-def index():
-    return "Bot is running perfectly!", 200
-
-def set_bot_webhook():
+if __name__ == "__main__":
+    # إلغاء أي Webhook قديم تماماً لضمان عمل الـ Polling بحرية
     try:
         bot.remove_webhook()
-        webhook_url = f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}"
-        bot.set_webhook(url=webhook_url)
-        print(f"تم تعيين الـ Webhook بنجاح إلى: {webhook_url}")
+        print("تمت إزالة الـ Webhook القديم بنجاح.")
     except Exception as e:
-        print(f"خطأ في تعيين الـ Webhook: {e}")
+        print(f"خطأ في إزالة الـ Webhook: {e}")
 
-if __name__ == "__main__":
-    set_bot_webhook()
-    port = int(os.environ.get("PORT", 8080))
-    server.run(host='0.0.0.0', port=port)
+    # تشغيل خادم الـ Flask في خلفية مستقلة لترضى منصة Railway
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    print("تم تشغيل خادم الويب الوهمي بنجاح.")
+
+    # بدء استقبال الرسائل مباشرة
+    print("البوت بدأ الاستماع للرسائل (Polling)...")
+    bot.infinity_polling(skip_pending=True)
