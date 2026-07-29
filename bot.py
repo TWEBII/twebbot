@@ -1,27 +1,19 @@
 import os
-import threading
-from flask import Flask
+from flask import Flask, request
 from groq import Groq
 import telebot
 from telebot import types
 from datetime import datetime, timedelta
 
-# إعدادات المفاتيح
+# إعدادات المفاتيح والروابط
 GROQ_API_KEY = "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"
 TELEGRAM_BOT_TOKEN = "8665200275:AAGsRxks0nJWtYySayDcY1rROPtHvRtVS-s"
+RAILWAY_URL = "https://twebbot-production.up.railway.app"
 ADMIN_CHAT_ID = 8411608232 
 
 client = Groq(api_key=GROQ_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is alive and running via Polling!", 200
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, threaded=False)
+server = Flask(__name__)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -44,7 +36,7 @@ def chat_with_ai(message):
     user_message = message.text
     chat_id = message.chat.id
     
-    print(f"استقبلت رسالة من أحمد: {user_message}")
+    print(f"تم استلام رسالة نصية من أحمد: {user_message}")
 
     try:
         processing_msg = bot.send_message(chat_id, "جاري الرد...")
@@ -67,26 +59,36 @@ def chat_with_ai(message):
         bot.edit_message_text(ai_response, chat_id=chat_id, message_id=processing_msg.message_id, parse_mode="Markdown")
 
     except Exception as e:
-        print(f"خطأ في الرد: {e}")
+        print(f"حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {e}")
         try:
             bot.send_message(chat_id, f"أهلاً بك يا أحمد، وصلني كلامك: {user_message}")
         except:
             pass
 
-if __name__ == "__main__":
-    # إلغاء أي Webhook قديم تماماً لضمان عمل الـ Polling بحرية
+@server.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Forbidden', 403
+
+@server.route("/")
+def index():
+    return "TWEB Bot Webhook Server is active!", 200
+
+def setup_webhook():
     try:
         bot.remove_webhook()
-        print("تمت إزالة الـ Webhook القديم بنجاح.")
+        webhook_url = f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}"
+        bot.set_webhook(url=webhook_url)
+        print(f"تم تحديث وإلغاء الـ Webhook القديم وربطه بنجاح مع: {webhook_url}")
     except Exception as e:
-        print(f"خطأ في إزالة الـ Webhook: {e}")
+        print(f"خطأ في تعيين الـ Webhook: {e}")
 
-    # تشغيل خادم الـ Flask في خلفية مستقلة لترضى منصة Railway
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    print("تم تشغيل خادم الويب الوهمي بنجاح.")
-
-    # بدء استقبال الرسائل مباشرة
-    print("البوت بدأ الاستماع للرسائل (Polling)...")
-    bot.infinity_polling(skip_pending=True)
+if __name__ == "__main__":
+    setup_webhook()
+    port = int(os.environ.get("PORT", 8080))
+    server.run(host='0.0.0.0', port=port)
