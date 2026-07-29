@@ -1,9 +1,10 @@
+import time
 import telebot
 import config
 import database
 import handlers
 
-# تهيئة البوت باستخدام التوكن من ملف الإعدادات
+# تهيئة البوت باستخدام التوكن
 bot = telebot.TeleBot(config.BOT_TOKEN)
 
 def main():
@@ -17,20 +18,26 @@ def main():
     handlers.register_handlers(bot)
     print("تم ربط الأوامر والردود بنجاح ✅")
     
-    # 3. قطع أي اتصال أو ويبهوك قديم لمنع خطأ 409 نهائياً
+    # 3. استراحة قصيرة لضمان إغلاق أي اتصال قديم بالكامل
+    print("انتظار 3 ثوانٍ لتنظيف الاتصالات السابقة...")
+    time.sleep(3)
+    
     try:
         bot.remove_webhook()
-        print("تم تنظيف الاتصالات القديمة بنجاح ✅")
+        print("تم إزالة أي Webhook قديم بنجاح ✅")
     except Exception as e:
-        print(f"ملاحظة تنظيف الاتصال: {e}")
+        print(f"ملاحظة: {e}")
+        
+    print("البوت يعمل الآن بشكل دائم وآمن!")
     
-    print("البوت يعمل الآن! اذهب إلى التلغرام وأرسل /start")
-    
-    # 4. تشغيل البوت بشكل آمن ومستمر
-    try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e:
-        print(f"حدث خطأ أثناء التشغيل: {e}")
+    # 4. تشغيل حلقة آمنة لا تتوقف أبداً حتى لو حدث خطأ مؤقت
+    while True:
+        try:
+            bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
+        except Exception as e:
+            print(f"حدث خطأ في الاتصال: {e}")
+            print("إعادة محاولة التشغيل خلال 5 ثوانٍ...")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
