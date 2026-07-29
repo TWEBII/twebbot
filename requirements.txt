@@ -1,2 +1,5 @@
-pyTelegramBotAPI
-groq
+pyTelegramBotAPI==4.28.0
+groq>=0.31.0
+python-dotenv
+requests
+Pillow
