@@ -2,6 +2,7 @@ import io
 import os
 import random
 import time
+import threading
 from datetime import datetime, timedelta
 from flask import Flask, request
 from groq import Groq
@@ -23,12 +24,16 @@ ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-FONT_URLS = [
-    "https://cdn.jsdelivr.net/npm/@fontsource/amiri/files/amiri-arabic-400-normal.ttf",
-    "https://fonts.gstatic.com/s/amiri/v24/J7aRDI1XBwQ6E_v67bL-vA.ttf",
-    "https://cdn.jsdelivr.net/npm/@fontsource/cairo/files/cairo-arabic-400-normal.ttf"
+# مسارات خطوط النظام الأساسية في لينكس
+POSSIBLE_SYSTEM_FONTS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf"
 ]
-FONT_PATH = "/tmp/Amiri-Regular.ttf"
+
+FONT_PATH = "/tmp/ArabicFont.ttf"
 
 STICKER_PACK_NAMES = ["Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"]
 cached_stickers = []
@@ -38,10 +43,10 @@ total_messages_sent = 0
 
 custom_start_message = (
     "هلا بيك أحمد. أنا تويبي (Tweby)، مساعدك الشخصي للترجمة المرئية الذكية.\n\n"
-    "🛠 ما يمكنني فعله لك الآن:\n"
-    "• ترجمة الصور مرئياً بدقة وتركيز على النصوص الحقيقية فقط دون المساس بالرسوم\n"
-    "• ترجمة ملفات الـ PDF بالكامل بنفس التنسيق والهيكل الهندسي للملف\n\n"
-    "أرسل صورتك أو ملفك مباشرة لتجربة النظام المحدث!"
+    "🛠 تم تحديث نظام المعالجة بالخلفية لمنع أي انقطاع:\n"
+    "• ترجمة الصور مرئياً بدقة متناهية وبدون توقف للسيرفر\n"
+    "• ترجمة ملفات الـ PDF بالكامل بنفس التنسيق والهيكل الهندسي\n\n"
+    "أرسل صورتك أو ملفك مباشرة الآن!"
 )
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -57,20 +62,19 @@ reshaper_config = {
 arabic_reshaper_instance = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
 
 
-def ensure_arabic_font():
-    if not os.path.exists(FONT_PATH) or os.path.getsize(FONT_PATH) < 20000:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        for url in FONT_URLS:
+def get_working_font(font_size):
+    for sys_font in POSSIBLE_SYSTEM_FONTS:
+        if os.path.exists(sys_font):
             try:
-                r = requests.get(url, headers=headers, timeout=20)
-                if r.status_code == 200 and len(r.content) > 20000:
-                    with open(FONT_PATH, "wb") as f:
-                        f.write(r.content)
-                    return True
+                return ImageFont.truetype(sys_font, font_size)
             except Exception:
-                pass
-        return False
-    return True
+                continue
+    if os.path.exists(FONT_PATH):
+        try:
+            return ImageFont.truetype(FONT_PATH, font_size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
 
 
 def clean_markdown(text):
@@ -87,9 +91,6 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """ترجمة النصوص الحقيقية فقط وتجاهل الأسهم والخطوط والرموز الرسومية تماماً"""
-    font_available = ensure_arabic_font()
-    
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
     
@@ -103,8 +104,6 @@ def translate_image_core(image_bytes):
     
     for i in range(n_boxes):
         text = data['text'][i].strip()
-        
-        # فلتر صارم جداً: تجاهل أي شيء ليس كلمة إنجليزية حقيقية (تجاهل الرموز، الشرطات، والأسهم)
         if not text or len(text) < 2:
             continue
         if not any(c.isalpha() for c in text):
@@ -119,7 +118,8 @@ def translate_image_core(image_bytes):
         line_words = [data['text'][idx] for idx in indices]
         full_line_text = " ".join(line_words).strip()
         
-        if not full_line_text or len(full_line_text) < 2:
+        full_line_text = ''.join(c for c in full_line_text if c.isalnum() or c.isspace() or c in ".,-")
+        if not full_line_text or len(full_line_text.strip()) < 2:
             continue
             
         lefts = [data['left'][idx] for idx in indices]
@@ -154,7 +154,6 @@ def translate_image_core(image_bytes):
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح النص الإنجليزي القديم بدقة
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
         try:
@@ -164,15 +163,8 @@ def translate_image_core(image_bytes):
             bidi_text = arabic_text
             
         line_h = y2 - y1
-        font_size = max(14, int(line_h * 0.85))
-        
-        if font_available:
-            try:
-                font = ImageFont.truetype(FONT_PATH, font_size)
-            except Exception:
-                font = ImageFont.load_default()
-        else:
-            font = ImageFont.load_default()
+        font_size = max(14, int(line_h * 0.80))
+        font = get_working_font(font_size)
             
         try:
             tw, th = draw.textbbox((0, 0), bidi_text, font=font)[2:]
@@ -281,7 +273,7 @@ def handle_photos(message):
         
         bot.send_photo(
             message.chat.id, io.BytesIO(translated_photo_bytes), 
-            caption="✅ تمت الترجمة بنجاح واستبدال النصوص بالكامل!",
+            caption="✅ تمت الترجمة بنجاح واستبدال النصوص بالعربية بوضوح!",
             reply_to_message_id=message.message_id
         )
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
@@ -313,17 +305,17 @@ def chat_with_ai(message):
 def redirect_message():
     json_string = request.get_data().decode('utf-8')
     update = types.Update.de_json(json_string)
-    bot.process_new_updates([update])
+    # تشغيل المعالجة في الخلفية لتجنب تايم أوت سيرفر Railway وانقطاع الحاوية
+    threading.Thread(target=bot.process_new_updates, args=([update],)).start()
     return "!", 200
 
 @server.route("/")
 def index():
-    return "Tweby Smart Text Filter running smoothly!", 200
+    return "Tweby Background Thread Running Smoothly!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل البوت...")
     set_bot_commands()
-    ensure_arabic_font()
     
     try:
         bot.remove_webhook()
