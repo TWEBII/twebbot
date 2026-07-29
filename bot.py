@@ -23,11 +23,11 @@ ADMIN_CHAT_ID = 8411608232
 ADMIN_USERNAME = "@TWEBii"
 RAILWAY_URL = "https://twebbot-production.up.railway.app"
 
-# روابط خطوط مستقرة ومباشرة
+# روابط إنتاجية عالمية (لا تحظر السيرفرات وتضمن تحميل الخط العربي كاملاً 100%)
 FONT_URLS = [
-    "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf",
-    "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo-Regular.ttf",
-    "https://raw.githubusercontent.com/googlefonts/amiri/main/fonts/ttf/Amiri-Regular.ttf"
+    "https://cdn.jsdelivr.net/npm/@fontsource/amiri/files/amiri-arabic-400-normal.ttf",
+    "https://fonts.gstatic.com/s/amiri/v24/J7aRDI1XBwQ6E_v67bL-vA.ttf",
+    "https://cdn.jsdelivr.net/npm/@fontsource/cairo/files/cairo-arabic-400-normal.ttf"
 ]
 FONT_PATH = "Amiri-Regular.ttf"
 
@@ -50,23 +50,32 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 server = Flask(__name__)
 
+# تهيئة معالج النصوص العربية بإعدادات صارمة لضمان اتصال الحروف ومنع الانفصال
+reshaper_config = {
+    'delete_harakat': True,
+    'support_default_harakat': True,
+    'delete_tatweel': False,
+    'language': 'Arabic'
+}
+arabic_reshaper_instance = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
+
 
 def ensure_arabic_font():
-    """تحميل الخط العربي مع إضافة مستندات تعريف المتصفح لتجنب حظر السيرفرات"""
-    if not os.path.exists(FONT_PATH) or os.path.getsize(FONT_PATH) < 1000:
+    """تحميل الخط العربي من خوادم مفتوحة ومستقرة مع رفع حجم التحقق لضمان سلامة الملف"""
+    if not os.path.exists(FONT_PATH) or os.path.getsize(FONT_PATH) < 20000:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         for url in FONT_URLS:
             try:
-                r = requests.get(url, headers=headers, timeout=15)
-                if r.status_code == 200:
+                r = requests.get(url, headers=headers, timeout=20)
+                if r.status_code == 200 and len(r.content) > 20000:
                     with open(FONT_PATH, "wb") as f:
                         f.write(r.content)
-                    print("✅ تم تحميل الخط العربي بنجاح وتخطي الحماية.")
+                    print("✅ تم تأمين وتحميل الخط العربي بنجاح من خادم مستقر.")
                     return True
             except Exception as e:
-                print(f"فشل جلب الخط من الرابط {url}: {e}")
+                print(f"فشل جلب الخط من {url}: {e}")
         return False
     return True
 
@@ -85,7 +94,7 @@ def safe_edit_message(text, chat_id, message_id, parse_mode="Markdown"):
 
 
 def translate_image_core(image_bytes):
-    """معالجة متقدمة: عزل ألوان النص واستهداف الأسطر الحقيقية فقط"""
+    """معالجة الأسطر وترجمتها مع فرض دمج وتصحيح اتجاه الحروف العربية"""
     font_available = ensure_arabic_font()
     
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -99,7 +108,6 @@ def translate_image_core(image_bytes):
     n_boxes = len(data['text'])
     lines = {}
     
-    # تجميع الكلمات بناءً على البلوك والسطر
     for i in range(n_boxes):
         text = data['text'][i].strip()
         if not text or len(text) < 2:
@@ -116,7 +124,6 @@ def translate_image_core(image_bytes):
         if not full_line_text or len(full_line_text) < 2:
             continue
             
-        # حساب أبعاد المربع الدقيق
         lefts = [data['left'][idx] for idx in indices]
         tops = [data['top'][idx] for idx in indices]
         rights = [data['left'][idx] + data['width'][idx] for idx in indices]
@@ -125,7 +132,6 @@ def translate_image_core(image_bytes):
         x1, y1 = max(0, min(lefts) - 4), max(0, min(tops) - 3)
         x2, y2 = min(img.width, max(rights) + 4), min(img.height, max(bottoms) + 3)
         
-        # استدعاء الترجمة الصارمة بدون أي هوامش أو نصوص جانبية
         prompt = f"Translate the following medical/technical English text into professional Arabic. Return ONLY the translated Arabic text, no explanations, no english words, no quotes:\n{full_line_text}"
         try:
             chat_completion = client.chat.completions.create(
@@ -137,11 +143,9 @@ def translate_image_core(image_bytes):
         except Exception:
             continue
             
-        # حماية: إذا كانت الترجمة فارغة لا تحذف النص الأصلي
         if not arabic_text or len(arabic_text) < 1:
             continue
             
-        # استخراج عينة الخلفية النقية باستخدام الـ Median لتجاهل لون الخط الأبيض تماماً
         box_region = img.crop((x1, y1, x2, y2))
         img_np = np.array(box_region)
         if img_np.size > 0:
@@ -149,23 +153,21 @@ def translate_image_core(image_bytes):
         else:
             bg_color = (15, 15, 15)
             
-        # تحديد لون النص تلقائياً (أبيض أو أسود) حسب درجة عتمة الخلفية
         luminance = (0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]) / 255
         text_color = (0, 0, 0) if luminance > 0.5 else (255, 255, 255)
         
-        # مسح النص القديم بلون متناسق تماماً مع السلايد
+        # مسح النص القديم بالاعتماد الكامل على لون الخلفية النقي
         draw.rectangle([x1, y1, x2, y2], fill=bg_color)
         
-        # تشكيل وإصلاح اتجاه النصوص العربية (من اليمين لليسار)
+        # إعادة تشكيل الحروف وتصحيح اتجاه النص العربي من اليمين إلى اليسار
         try:
-            reshaped = arabic_reshaper.reshape(arabic_text)
+            reshaped = arabic_reshaper_instance.reshape(arabic_text)
             bidi_text = get_display(reshaped)
         except Exception:
             bidi_text = arabic_text
             
-        # حساب الحجم المناسب للخط بناءً على ارتفاع السطر الأصلي
         line_h = y2 - y1
-        font_size = max(14, int(line_h * 0.88))
+        font_size = max(14, int(line_h * 0.85))
         
         if font_available:
             try:
@@ -175,7 +177,6 @@ def translate_image_core(image_bytes):
         else:
             font = ImageFont.load_default()
             
-        # حساب التموضع ليكون النص المترجم في المنتصف الهندسي تماماً
         try:
             tw, th = draw.textbbox((0, 0), bidi_text, font=font)[2:]
         except Exception:
@@ -187,7 +188,7 @@ def translate_image_core(image_bytes):
         tx = x1 + (x2 - x1 - tw) // 2
         ty = y1 + (y2 - y1 - th) // 2
         
-        # طباعة النص العربي النظيف والمستقر
+        # طباعة النص العربي المتصل والمصحح هندسياً
         draw.text((tx, ty), bidi_text, fill=text_color, font=font)
         
     out_buf = io.BytesIO()
@@ -202,25 +203,22 @@ def load_sticker_packs():
         try:
             pack = bot.get_sticker_set(pack_name)
             all_stickers.extend([sticker.file_id for sticker in pack.stickers])
-        except Exception as e:
-            print(f"Sticker pack error: {e}")
+        except Exception:
+            pass
     cached_stickers = all_stickers
 
 
 def set_bot_commands():
     try:
-        bot.set_my_commands([
-            types.BotCommand("start", "القائمة الرئيسية والمساعدة")
-        ])
-    except Exception as e:
-        print(f"Commands error: {e}")
+        bot.set_my_commands([types.BotCommand("start", "القائمة الرئيسية والمساعدة")])
+    except Exception:
+        pass
 
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     users_db.add(user_id)
-    
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("🖼 ترجمة الصور مرئياً", callback_data="translate_photos_info"),
@@ -242,7 +240,6 @@ def handle_documents(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-    
     raw_file_name = message.document.file_name
     file_name = raw_file_name.lower()
     
@@ -284,18 +281,12 @@ def handle_documents(message):
         safe_edit_message("📂 تجميع وإعادة صياغة ملف الـ PDF المترجم النظيف والنهائي...\n█████████░ 90%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
         output_pdf_name = f"مترجم_{raw_file_name}"
-        translated_images_list[0].save(
-            output_pdf_name, 
-            save_all=True, 
-            append_images=translated_images_list[1:]
-        )
-        
+        translated_images_list[0].save(output_pdf_name, save_all=True, append_images=translated_images_list[1:])
         safe_edit_message("⚡ جاري رفع وإرسال النسخة المترجمة الهيكلية الجديدة...", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
         with open(output_pdf_name, "rb") as f:
             bot.send_document(
-                message.chat.id, 
-                f, 
+                message.chat.id, f, 
                 caption=f"✅ تم معالجة وترجمة ملفك ({raw_file_name}) خطياً بنجاح، مع بقاء الصور والرسوم التوضيحية سليمة تماماً!",
                 reply_to_message_id=message.message_id
             )
@@ -313,7 +304,6 @@ def handle_photos(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-    
     sent_msg = bot.reply_to(message, "⏳ جاري استقبال الصورة وفحص الأسطر النصية...\n▓░░░░░░░░░ 0%")
     
     try:
@@ -322,18 +312,14 @@ def handle_photos(message):
         downloaded_file = bot.download_file(file_info.file_path)
         
         safe_edit_message("🔍 جاري معالجة الأسطر ومسح العبارات القديمة بدقة خطية...\n██████░░░░ 60%", chat_id=message.chat.id, message_id=sent_msg.message_id)
-        
         translated_photo_bytes = translate_image_core(downloaded_file)
-        
         safe_edit_message("⚡ جاري تسليم الصورة المترجمة المحدثة الآن...\n█████████░ 95%", chat_id=message.chat.id, message_id=sent_msg.message_id)
         
         bot.send_photo(
-            message.chat.id, 
-            io.BytesIO(translated_photo_bytes), 
+            message.chat.id, io.BytesIO(translated_photo_bytes), 
             caption="✅ تمت الترجمة البصرية المستقرة واستبدال النصوص الإنجليزية بالعربية داخل محيط السطر الأصلي!",
             reply_to_message_id=message.message_id
         )
-        
         bot.delete_message(chat_id=message.chat.id, message_id=sent_msg.message_id)
         
     except Exception as e:
@@ -345,24 +331,17 @@ def chat_with_ai(message):
     global total_messages_sent
     user_id = message.from_user.id
     users_db.add(user_id)
-    
     try:
         sent_msg = bot.reply_to(message, "جاري التفكير والرد...")
         total_messages_sent += 1
-        
         system_content = f"أنت نظام ذكاء اصطناعي يحمل اسم تويبي (Tweby) ومطورك هو أحمد ({ADMIN_USERNAME}). ردودك دقيقة ومباشرة وفصيحة."
-        
         chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": str(message.text)}
-            ],
+            messages=[{"role": "system", "content": system_content}, {"role": "user", "content": str(message.text)}],
             model="llama-3.3-70b-versatile",
             temperature=0.4
         )
         ai_response = chat_completion.choices[0].message.content
         bot.edit_message_text(ai_response if ai_response else "أهلاً بك، أنا جاهز لمساعدتك.", chat_id=message.chat.id, message_id=sent_msg.message_id)
-                
     except Exception as e:
         bot.reply_to(message, f"خطأ في معالجة النص: {str(e)}")
 
@@ -376,7 +355,7 @@ def redirect_message():
 
 @server.route("/")
 def index():
-    return "Tweby Overlay Fix is running smoothly on Railway!", 200
+    return "Tweby CDN Font Fix is running smoothly on Railway!", 200
 
 if __name__ == "__main__":
     print("جاري بدء تشغيل النسخة المستقرة لترجمة السطور...")
@@ -387,7 +366,6 @@ if __name__ == "__main__":
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{RAILWAY_URL}/{TELEGRAM_BOT_TOKEN}")
-        print("Webhook Setup Complete!")
     except Exception as e:
         print(f"Webhook error: {e}")
         
