@@ -6,9 +6,6 @@ if not os.path.exists('downloads'):
     os.makedirs('downloads')
 
 def resolve_url(url):
-    """
-    توسيع الروابط المختصرة مثل vm.tiktok.com للحصول على الرابط المباشر الحقيقي
-    """
     if 'vm.tiktok.com' in url or 'vt.tiktok.com' in url:
         try:
             req = urllib.request.Request(
@@ -28,6 +25,9 @@ def get_video_info(url):
     
     if 'tiktok.com' in resolved_url:
         return {'title': 'TikTok Video', 'duration': 0, 'id': 'tiktok_id'}
+
+    if 'instagram.com' in resolved_url:
+        return {'title': 'Instagram Media', 'duration': 0, 'id': 'insta_id'}
 
     ydl_opts = {
         'quiet': True,
@@ -58,6 +58,7 @@ def download_media(url, media_type='video', progress_callback=None):
                 progress_callback(percent)
 
     is_tiktok = 'tiktok.com' in real_url
+    is_insta = 'instagram.com' in real_url
 
     common_opts = {
         'geo_bypass': True,
@@ -68,7 +69,7 @@ def download_media(url, media_type='video', progress_callback=None):
         'socket_timeout': 30,
     }
 
-    if not is_tiktok:
+    if not is_tiktok and not is_insta:
         common_opts.update({
             'extractor_args': {
                 'youtube': {
@@ -79,16 +80,26 @@ def download_media(url, media_type='video', progress_callback=None):
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             }
         })
-    else:
+    elif is_tiktok:
         common_opts.update({
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Referer': 'https://www.tiktok.com/',
             }
         })
+    elif is_insta:
+        # إعدادات متطورة لتجاوز حماية انستغرام وسحب الفيديو أو الصوت بنجاح
+        common_opts.update({
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+                'Referer': 'https://www.instagram.com/',
+            }
+        })
 
-    # إذا كان تيك توك، نقوم دائماً بتحميل صيغة الفيديو المضمونة أولاً، وسواء طلب المستخدم فيديو أو صوت سنقوم بتلبية الطلب بدقة
-    if is_tiktok:
+    if is_tiktok or is_insta:
         ydl_opts = {
             **common_opts,
             'format': 'best[filesize<=45M]/best',
@@ -117,7 +128,6 @@ def download_media(url, media_type='video', progress_callback=None):
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # معالجة ملف الصوت لتيك توك أو يوتيوب
             if media_type == 'audio':
                 base_name = os.path.splitext(filename)[0]
                 for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus', '.mp4']:
