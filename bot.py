@@ -635,4 +635,5 @@ def process_user_instructions(message):
 
 if __name__ == "__main__":
     print("تم تحديث البوت وربطه بملف الألعاب الخارجي وملف التحميل مع الحذف التلقائي بنجاح!")
-    bot.infinity_polling() 
+    bot.remove_webhook()
+    bot.infinity_polling()
