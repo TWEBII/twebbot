@@ -6,8 +6,9 @@ from telebot.types import (
     InputTextMessageContent
 )
 
-# ذاكرة مؤقتة لتخزين حالات ألعاب XO النشطة
+# ذاكرة مؤقتة للحالات
 ACTIVE_XO_GAMES = {}
+ACTIVE_XO_BOT_GAMES = {}
 
 def setup_game_handlers(bot):
     
@@ -45,16 +46,22 @@ def setup_game_handlers(bot):
                 parse_mode="Markdown"
             )
 
-    # واجهة لعبة XO
+    # ==================== قسم لعبة XO ====================
     @bot.callback_query_handler(func=lambda call: call.data == "game_xo_main")
     def start_xo_game(call):
         bot.answer_callback_query(call.id)
         
         xo_markup = InlineKeyboardMarkup()
-        xo_markup.row(InlineKeyboardButton("💜 تحدي اللعبة", switch_inline_query="XO_Challenge"))
+        xo_markup.row(
+            InlineKeyboardButton("👥 تحدي صديق", switch_inline_query="XO_Challenge"),
+            InlineKeyboardButton("🤖 تحدي البوت", callback_data="xo_vs_bot_start")
+        )
         xo_markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="user_menu_games"))
         
-        text = "🎮 **لعبة XO ❌⭕️**\n\nانقر على زر التحدي أدناه لمشاركة اللعبة مع أصدقائك في أي محادثة:"
+        text = (
+            "🎮 **لعبة XO ❌⭕️**\n\n"
+            "اختر طريقة اللعب التي تفضلها:"
+        )
         try:
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -66,22 +73,140 @@ def setup_game_handlers(bot):
         except Exception as e:
             print(f"XO Error: {e}")
 
-    # واجهة لعبة حجر ورقة مقص (الخطوة 1: اختيار اللاعب الأول لحركته)
+    # بدء لعبة XO ضد البوت
+    @bot.callback_query_handler(func=lambda call: call.data == "xo_vs_bot_start")
+    def xo_vs_bot_start(call):
+        bot.answer_callback_query(call.id, "بدأت لعبة XO ضد البوت!")
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        
+        ACTIVE_XO_BOT_GAMES[(chat_id, msg_id)] = {
+            "board": ["⬜"] * 9,
+            "status": "playing"
+        }
+        
+        markup = InlineKeyboardMarkup()
+        for i in range(0, 9, 3):
+            markup.row(
+                InlineKeyboardButton("⬜", callback_data=f"xobot_{i}"),
+                InlineKeyboardButton("⬜", callback_data=f"xobot_{i+1}"),
+                InlineKeyboardButton("⬜", callback_data=f"xobot_{i+2}")
+            )
+        markup.row(InlineKeyboardButton("🔄 إعادة الجولة", callback_data="xo_vs_bot_start"))
+        markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="game_xo_main"))
+        
+        text = "🤖 **لعبة XO ضد البوت**\n\nأنت تلعب بـ (❌) والبوت بـ (⭕️).\nدورك الآن، اختر خانة:"
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"XO Bot Start Error: {e}")
+
+    # تفاعل لوحة XO ضد البوت
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("xobot_"))
+    def handle_xo_bot_click(call):
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        key = (chat_id, msg_id)
+        
+        if key not in ACTIVE_XO_BOT_GAMES:
+            ACTIVE_XO_BOT_GAMES[key] = {"board": ["⬜"] * 9, "status": "playing"}
+            
+        game = ACTIVE_XO_BOT_GAMES[key]
+        if game["status"] != "playing":
+            bot.answer_callback_query(call.id, "انتهت هذه الجولة!", show_alert=True)
+            return
+            
+        try:
+            idx = int(call.data.split("_")[1])
+        except ValueError:
+            return
+            
+        board = game["board"]
+        if board[idx] != "⬜":
+            bot.answer_callback_query(call.id, "هذه الخانة محجوزة!", show_alert=True)
+            return
+            
+        # حركة اللاعب
+        board[idx] = "❌"
+        
+        # فحص الفوز أو التعادل بعد حركة اللاعب
+        winning_combos = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
+        winner = None
+        for c in winning_combos:
+            if board[c[0]] == board[c[1]] == board[c[2]] != "⬜":
+                winner = board[c[0]]
+                break
+                
+        is_draw = "⬜" not in board and not winner
+        
+        if not winner and not is_draw:
+            # دور البوت (اختيار خانة فارغة عشوائياً)
+            empty_spots = [i for i, val in enumerate(board) if val == "⬜"]
+            if empty_spots:
+                bot_idx = random.choice(empty_spots)
+                board[bot_idx] = "⭕️"
+                
+                # فحص الفوز أو التعادل بعد حركة البوت
+                for c in winning_combos:
+                    if board[c[0]] == board[c[1]] == board[c[2]] != "⬜":
+                        winner = board[c[0]]
+                        break
+                is_draw = "⬜" not in board and not winner
+
+        markup = InlineKeyboardMarkup()
+        if not winner and not is_draw:
+            for i in range(0, 9, 3):
+                markup.row(
+                    InlineKeyboardButton(board[i], callback_data=f"xobot_{i}"),
+                    InlineKeyboardButton(board[i+1], callback_data=f"xobot_{i+1}"),
+                    InlineKeyboardButton(board[i+2], callback_data=f"xobot_{i+2}")
+                )
+            text = "🤖 **لعبة XO ضد البوت**\n\nدورك الآن (❌):"
+        else:
+            game["status"] = "finished"
+            if winner == "❌":
+                text = "🤖 **لعبة XO ضد البوت**\n\n🎉 تهانينا! لقد هزمت البوت ببراعة!"
+            elif winner == "⭕️":
+                text = "🤖 **لعبة XO ضد البوت**\n\n😢 حظاً أوفر، لقد فاز البوت عليك!"
+            else:
+                text = "🤖 **لعبة XO ضد البوت**\n\n🤝 تعادل تام بينك وبين البوت."
+                
+            markup.row(InlineKeyboardButton("🔄 تلعب مرة أخرى", callback_data="xo_vs_bot_start"))
+            markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="game_xo_main"))
+
+        bot.answer_callback_query(call.id)
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"XO Bot Click Error: {e}")
+
+    # ==================== قسم لعبة حجر ورقة مقص ====================
     @bot.callback_query_handler(func=lambda call: call.data == "game_rps_main")
     def start_rps_game(call):
         bot.answer_callback_query(call.id)
         
         rps_markup = InlineKeyboardMarkup()
         rps_markup.row(
-            InlineKeyboardButton("🪨 حجر", callback_data="rps_p1_rock"),
-            InlineKeyboardButton("📄 ورقة", callback_data="rps_p1_paper"),
-            InlineKeyboardButton("✂️ مقص", callback_data="rps_p1_scissors")
+            InlineKeyboardButton("👥 تحدي صديق", callback_data="rps_friend_mode"),
+            InlineKeyboardButton("🤖 تحدي البوت", callback_data="rps_bot_mode")
         )
         rps_markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="user_menu_games"))
         
         text = (
             "✂️ **لعبة حجر ورقة مقص**\n\n"
-            "الخطوة الأولى: اختر حركتك أولاً من الأزرار أدناه قبل إرسال التحدي:"
+            "اختر وضع التحدي المناسب لك:"
         )
         try:
             bot.edit_message_text(
@@ -94,7 +219,103 @@ def setup_game_handlers(bot):
         except Exception as e:
             print(f"RPS Error: {e}")
 
-    # معالجة اختيار اللاعب الأول لحركته في حجر ورقة مقص
+    # وضع تحدي صديق (اختر حركتك أولاً)
+    @bot.callback_query_handler(func=lambda call: call.data == "rps_friend_mode")
+    def rps_friend_mode(call):
+        bot.answer_callback_query(call.id)
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("🪨 حجر", callback_data="rps_p1_rock"),
+            InlineKeyboardButton("📄 ورقة", callback_data="rps_p1_paper"),
+            InlineKeyboardButton("✂️ مقص", callback_data="rps_p1_scissors")
+        )
+        markup.row(InlineKeyboardButton("« رجوع", callback_data="game_rps_main"))
+        
+        text = "✂️ **تحدي صديق**\n\nالخطوة الأولى: اختر حركتك سرا أولاً:"
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+    # وضع تحدي البوت (اختر حركتك لمنافسته مباشرة)
+    @bot.callback_query_handler(func=lambda call: call.data == "rps_bot_mode")
+    def rps_bot_mode(call):
+        bot.answer_callback_query(call.id)
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("🪨 حجر", callback_data="rps_vs_bot_rock"),
+            InlineKeyboardButton("📄 ورقة", callback_data="rps_vs_bot_paper"),
+            InlineKeyboardButton("✂️ مقص", callback_data="rps_vs_bot_scissors")
+        )
+        markup.row(InlineKeyboardButton("« رجوع", callback_data="game_rps_main"))
+        
+        text = "🤖 **تحدي البوت في حجر ورقة مقص**\n\nاختر ما تنافس به البوت الآن:"
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+    # معالجة اللعب ضد البوت في حجر ورقة مقص
+    @bot.callback_query_handler(func=lambda call: call.data in ["rps_vs_bot_rock", "rps_vs_bot_paper", "rps_vs_bot_scissors"])
+    def play_rps_vs_bot(call):
+        user_choice_key = call.data.replace("rps_vs_bot_", "")
+        choices = {
+            "rock": ("حجر", "🪨"),
+            "paper": ("ورقة", "📄"),
+            "scissors": ("مقص", "✂️")
+        }
+        
+        user_name, user_emoji = choices[user_choice_key]
+        bot_key = random.choice(list(choices.keys()))
+        bot_name, bot_emoji = choices[bot_key]
+        
+        if user_choice_key == bot_key:
+            result_text = "🤝 **تعادل تام مع البوت!**"
+        elif (
+            (user_choice_key == "rock" and bot_key == "scissors") or
+            (user_choice_key == "paper" and bot_key == "rock") or
+            (user_choice_key == "scissors" and bot_key == "paper")
+        ):
+            result_text = "🎉 **تهانينا، لقد فزت على البوت!**"
+        else:
+            result_text = "😢 **حظاً أوفر، لقد فاز البوت عليك!**"
+            
+        text = (
+            f"🤖 **نتيجة تحدي البوت**\n\n"
+            f"👤 اختيارك: {user_emoji} {user_name}\n"
+            f"🤖 اختيار البوت: {bot_emoji} {bot_name}\n\n"
+            f"{result_text}"
+        )
+        
+        markup = InlineKeyboardMarkup()
+        markup.row(InlineKeyboardButton("🔄 تلعب مرة أخرى", callback_data="rps_bot_mode"))
+        markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="game_rps_main"))
+        
+        bot.answer_callback_query(call.id, f"اخترت {user_name}!")
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"RPS Bot Play Error: {e}")
+
+    # معالجة اختيار اللاعب الأول لتحدي الأصدقاء
     @bot.callback_query_handler(func=lambda call: call.data in ["rps_p1_rock", "rps_p1_paper", "rps_p1_scissors"])
     def rps_p1_chosen(call):
         choice_map = {
@@ -107,13 +328,13 @@ def setup_game_handlers(bot):
         
         share_markup = InlineKeyboardMarkup()
         share_markup.row(InlineKeyboardButton("🚀 إرسال التحدي إلى صديق", switch_inline_query=f"RPS_PLAY_{key}"))
-        share_markup.row(InlineKeyboardButton("🔄 تغيير الحركة", callback_data="game_rps_main"))
-        share_markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="user_menu_games"))
+        share_markup.row(InlineKeyboardButton("🔄 تغيير الحركة", callback_data="rps_friend_mode"))
+        share_markup.row(InlineKeyboardButton("« رجوع", callback_data="game_rps_main"))
         
         text = (
-            f"✂️ **لعبة حجر ورقة مقص**\n\n"
+            f"✂️ **تحدي صديق**\n\n"
             f"لقد اخترت: {emoji} **{name}**\n\n"
-            f"الآن انقر على الزر أدناه لمشاركة التحدي وإرساله إلى صديقك في أي دردشة:"
+            f"انقر على الزر أدناه لمشاركة التحدي مع صديقك في أي دردشة:"
         )
         try:
             bot.edit_message_text(
@@ -138,9 +359,9 @@ def setup_game_handlers(bot):
             xo_board = InlineKeyboardMarkup()
             for i in range(0, 9, 3):
                 xo_board.row(
-                    InlineKeyboardButton(initial_board[i], callback_data=f"xo_{i}"),
-                    InlineKeyboardButton(initial_board[i+1], callback_data=f"xo_{i+1}"),
-                    InlineKeyboardButton(initial_board[i+2], callback_data=f"xo_{i+2}")
+                    InlineKeyboardButton(initial_board[i], callback_data=f"xo_{user_id}_{i}"),
+                    InlineKeyboardButton(initial_board[i+1], callback_data=f"xo_{user_id}_{i+1}"),
+                    InlineKeyboardButton(initial_board[i+2], callback_data=f"xo_{user_id}_{i+2}")
                 )
             
             results.append(
@@ -168,7 +389,6 @@ def setup_game_handlers(bot):
             }
             c_name, c_emoji = choices_info[p1_choice]
             
-            # أزرار اللاعب الثاني للاختيار
             rps_board = InlineKeyboardMarkup()
             rps_board.row(
                 InlineKeyboardButton("🪨 حجر", callback_data=f"rps_play_{user_id}_{p1_choice}_rock"),
@@ -198,9 +418,19 @@ def setup_game_handlers(bot):
         except Exception as e:
             print(f"Inline Error: {e}")
 
-    # معالجة تفاعلات لعبة XO التفاعلية
-    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("xo_"))
+    # معالجة تفاعلات لعبة XO مع التحقق الصارم للأدوار بين شخصين
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("xo_") and not call.data.startswith("xobot_"))
     def handle_xo_click(call):
+        parts = call.data.split("_")
+        if len(parts) < 3:
+            return
+            
+        p1_id = int(parts[1])
+        try:
+            idx = int(parts[2])
+        except ValueError:
+            return
+
         inline_id = call.inline_message_id
         if not inline_id:
             bot.answer_callback_query(call.id, "خطأ في معالجة اللعبة.")
@@ -210,24 +440,39 @@ def setup_game_handlers(bot):
             ACTIVE_XO_GAMES[inline_id] = {
                 "board": ["⬜"] * 9,
                 "turn": "❌",
+                "p1_id": p1_id,
+                "p2_id": None,
                 "status": "playing"
             }
         
         game = ACTIVE_XO_GAMES[inline_id]
         if game["status"] != "playing":
-            bot.answer_callback_query(call.id, "انتهت هذه الجولة بالفعل!")
+            bot.answer_callback_query(call.id, "انتهت هذه الجولة بالفعل!", show_alert=True)
             return
 
-        try:
-            idx = int(call.data.split("_")[1])
-        except ValueError:
-            return
+        user_id = call.from_user.id
+        turn = game["turn"]
+
+        if turn == "❌":
+            if user_id != game["p1_id"]:
+                bot.answer_callback_query(call.id, "ليس دورك! هذا دور اللاعب الأول (❌).", show_alert=True)
+                return
+        else:
+            if game["p2_id"] is None:
+                if user_id == game["p1_id"]:
+                    bot.answer_callback_query(call.id, "لا يمكنك اللعب ضد نفسك! انتظر صديقاً ليشارك.", show_alert=True)
+                    return
+                game["p2_id"] = user_id
+            else:
+                if user_id != game["p2_id"]:
+                    bot.answer_callback_query(call.id, "ليس دورك! هذا دور اللاعب الثاني (⭕️).", show_alert=True)
+                    return
 
         if game["board"][idx] != "⬜":
             bot.answer_callback_query(call.id, "هذه الخانة محجوزة بالفعل! اختر غيرها.")
             return
 
-        symbol = game["turn"]
+        symbol = turn
         game["board"][idx] = symbol
 
         board = game["board"]
@@ -248,9 +493,9 @@ def setup_game_handlers(bot):
         new_markup = InlineKeyboardMarkup()
         for i in range(0, 9, 3):
             new_markup.row(
-                InlineKeyboardButton(board[i], callback_data=f"xo_{i}"),
-                InlineKeyboardButton(board[i+1], callback_data=f"xo_{i+1}"),
-                InlineKeyboardButton(board[i+2], callback_data=f"xo_{i+2}")
+                InlineKeyboardButton(board[i], callback_data=f"xo_{p1_id}_{i}"),
+                InlineKeyboardButton(board[i+1], callback_data=f"xo_{p1_id}_{i+1}"),
+                InlineKeyboardButton(board[i+2], callback_data=f"xo_{p1_id}_{i+2}")
             )
 
         if winner:
@@ -263,7 +508,8 @@ def setup_game_handlers(bot):
             new_markup = None
         else:
             game["turn"] = "⭕️" if symbol == "❌" else "❌"
-            text = f"🎮 **لعبة XO جارية...**\nدور اللاعب ({game['turn']}):"
+            next_turn_symbol = game["turn"]
+            text = f"🎮 **لعبة XO جارية...**\nدور اللاعب ({next_turn_symbol}):"
 
         bot.answer_callback_query(call.id, "تم تسجيل نقرتك بنجاح!")
         try:
@@ -276,7 +522,7 @@ def setup_game_handlers(bot):
         except Exception as e:
             print(f"XO Edit Error: {e}")
 
-    # معالجة تفاعلات لعبة حجر ورقة مقص عندما يختار اللاعب الثاني
+    # معالجة تفاعلات لعبة حجر ورقة مقص بين شخصين عبر الانلاين
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("rps_play_"))
     def handle_rps_play(call):
         parts = call.data.split("_")
@@ -284,8 +530,8 @@ def setup_game_handlers(bot):
             return
             
         p1_id = int(parts[2])
-        c1 = parts[3] # rock, paper, scissors
-        c2 = parts[4] # rock, paper, scissors
+        c1 = parts[3]
+        c2 = parts[4]
         
         user_id = call.from_user.id
         user_name = call.from_user.first_name
@@ -303,7 +549,6 @@ def setup_game_handlers(bot):
         c1_name, c1_emoji = choices_map[c1]
         c2_name, c2_emoji = choices_map[c2]
 
-        # تطبيق قوانين الفوز
         if c1 == c2:
             result_msg = "🤝 **النتيجة: تعادل تام!**"
         elif (
