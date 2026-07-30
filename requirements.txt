@@ -1,5 +1,5 @@
 pyTelegramBotAPI
 groq
 pytz
-yt-dlp
+yt-dlp>=2026.01.01
 flask
