@@ -1,4 +1,4 @@
-import telebot
+Import telebot
 import os
 import json
 import random
@@ -210,10 +210,12 @@ def start_command(message):
 
     send_random_sticker(user_id)
 
+    # تحديث قائمة المستخدمين الإجمالية إذا لم تكن موجودة
     if user_id not in db["users"] and str_user_id != ADMIN_ID:
         db["users"].append(user_id)
         save_db(db)
 
+    # إرسال إشعار الدخول مرة واحدة فقط للمستخدم الجديد تماماً
     if "notified_users" not in db:
         db["notified_users"] = []
 
@@ -253,7 +255,7 @@ def start_command(message):
         else:
             bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
 
-# ================= معالج روابط السوشيال ميديا للتحميل مع العداد =================
+# ================= معالج روابط السوشيال ميديا للتحميل =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text:
@@ -266,28 +268,9 @@ def handle_social_links(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
     bot.send_chat_action(user_id, 'upload_video')
-    sent_msg = bot.reply_to(message, "⏳ جاري بدء التحميل واستخراج الرابط...")
+    sent_msg = bot.reply_to(message, "⏳ جاري استخراج المعالجة والتحميل من الرابط، يرجى الانتظار قليلاً...")
     
-    # دالة تقدم التحميل لتحديث الرسالة لحظياً بالعداد وشريط التقدم
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            percent_str = d.get('_percent_str', '0%').strip()
-            clean_percent = percent_str.replace('%', '').strip()
-            try:
-                p_int = int(float(clean_percent))
-                bar_filled = '█' * (p_int // 10) + '░' * (10 - (p_int // 10))
-                text = f"⏳ جاري التحميل...\n\n[{bar_filled}] {p_int}%\nيرجى الانتظار قليلاً..."
-                bot.edit_message_text(text, chat_id=user_id, message_id=sent_msg.message_id)
-            except Exception:
-                pass
-        elif d['status'] == 'finished':
-            try:
-                bot.edit_message_text("✅ تم الانتهاء من التحميل، جاري معالجة ورفع الملف...", chat_id=user_id, message_id=sent_msg.message_id)
-            except:
-                pass
-
-    # تعديل دالة الاستدعاء لتدعم العداد المئوي المباشر
-    file_path = download_video(message.text.strip(), progress_hook=progress_hook)
+    file_path = download_video(message.text.strip())
     
     if file_path and os.path.exists(file_path):
         try:
@@ -302,10 +285,7 @@ def handle_social_links(message):
         except:
             pass
     else:
-        try:
-            bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", user_id, sent_msg.message_id)
-        except:
-            pass
+        bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", user_id, sent_msg.message_id)
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -599,5 +579,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث الكود وتفعيل نظام العداد المئوي للتحميل بنجاح")
+    print("تم تحديث نظام إشعارات الدخول بنجاح")
     bot.infinity_polling()
