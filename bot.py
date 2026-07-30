@@ -308,7 +308,7 @@ def handle_social_links(message):
     bot.send_chat_action(message.chat.id, 'upload_video')
     sent_msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو (حتى 5 دقائق بجودة عالية)، يرجى الانتظار قليلاً...")
     
-    # تمرير رسالة المستخدم بالكامل لتتولى دالة downloader استخراج الرابط النظيف
+    # تمرير الرابط لدالة التحميل لاستخراج الملف الفعلي
     file_path = download_video(message.text)
     
     if file_path and os.path.exists(file_path):
@@ -328,7 +328,7 @@ def handle_social_links(message):
                 text="⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً."
             )
         finally:
-            # 🧹 **الحذف التلقائي:** مسح ملف الفيديو من السيرفر فوراً بعد الانتهاء للحفاظ على مساحة الخادم
+            # 🧹 الحذف التلقائي: مسح ملف الفيديو من السيرفر فوراً بعد الانتهاء
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -414,7 +414,7 @@ def callback_handler(call):
         
     elif call.data == "user_menu_guide":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار)، وسيقوم بتطبيقها فوراً.")
+        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار), وسيقوم بتطبيقها فوراً.")
         bot.register_next_step_handler(msg, process_user_instructions)
 
     elif call.data == "user_menu_download_guide":
