@@ -581,10 +581,3 @@ def process_user_instructions(message):
 if __name__ == "__main__":
     print("تم تحديث نظام إشعارات الدخول بنجاح")
     bot.infinity_polling()
-import threading
-import adhkar_sender
-
-# تشغيل نظام الأذكار في الخلفية بدون تعارض
-adhkar_thread = threading.Thread(target=adhkar_sender.run_scheduler)
-adhkar_thread.daemon = True
-adhkar_thread.start()
