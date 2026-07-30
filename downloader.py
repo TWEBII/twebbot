@@ -5,6 +5,9 @@ if not os.path.exists('downloads'):
     os.makedirs('downloads')
 
 def get_video_info(url):
+    """
+    استخراج بيانات الفيديو مع تجاوز حظر يوتيوب وتيك توك
+    """
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -12,8 +15,11 @@ def get_video_info(url):
         'nocheckcertificate': True,
         'extract_flat': False,
         'socket_timeout': 15,
-        # تجاوز حظر يوتيوب عبر خداع الخادم بمحاكاة متصفح ويب حقيقي
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -29,6 +35,9 @@ def get_video_info(url):
         return None
 
 def download_media(url, media_type='video', progress_callback=None):
+    """
+    تحميل الوسائط (يوتيوب وتيك توك) بفيديو أو صوت بدقة واستقرار كاملين
+    """
     max_size_bytes = 45 * 1024 * 1024  # 45 ميجابايت
 
     def hook(d):
@@ -45,8 +54,12 @@ def download_media(url, media_type='video', progress_callback=None):
         'quiet': True,
         'no_warnings': True,
         'max_filesize': max_size_bytes,
-        'socket_timeout': 20,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'socket_timeout': 25,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -62,6 +75,7 @@ def download_media(url, media_type='video', progress_callback=None):
             'merge_output_format': 'mp4',
         }
     else: 
+        # إعدادات مخصصة لاستخراج الصوت من تيك توك ويوتيوب بأمان تام
         ydl_opts = {
             **common_opts,
             'format': 'best/bestaudio/best',
@@ -86,8 +100,10 @@ def download_media(url, media_type='video', progress_callback=None):
                 mp3_file = base_name + '.mp3'
                 if os.path.exists(mp3_file):
                     return mp3_file
+                # البحث الذكي عن أي ملف mp3 تم توليده بالمعرف الخاص بالفيديو
+                video_id = info.get('id', '')
                 for f in os.listdir('downloads'):
-                    if f.startswith(info.get('id', '')) and f.endswith('.mp3'):
+                    if f.startswith(str(video_id)) and f.endswith('.mp3'):
                         return os.path.join('downloads', f)
                 return filename.rsplit('.', 1)[0] + '.mp3'
             else:
