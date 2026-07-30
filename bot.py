@@ -163,16 +163,31 @@ def clean_ai_response(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-def get_ai_reply(user_id, user_message):
+def get_ai_reply(message, user_message):
     tz = pytz.timezone('Asia/Baghdad')
     iraq_time = datetime.datetime.now(tz).strftime('%Y-%m-%d %I:%M:%S %p')
+    
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    
+    is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
     
     db = load_db()
     custom_instr = db.get("user_instructions", {}).get(str(user_id), "لا توجد شروط مخصصة.")
     
+    dev_directive = ""
+    if is_developer:
+        dev_directive = (
+            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB)، "
+            f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
+            f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
+            f"ولا تنكر أبداً أنه مطورك وصانعك."
+        )
+    
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB)، واسمك تويب (Tweb أو TWEB). "
         f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
+        f"{dev_directive}\n"
         f"قواعد الإجابة الصارمة:\n"
         f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
         f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.\n"
@@ -198,17 +213,17 @@ def get_ai_reply(user_id, user_message):
 @bot.message_handler(commands=['start'])
 def start_command(message):
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     str_user_id = str(user_id)
     
     if str_user_id in db.get("banned_users", []):
         return
 
     if not db.get("bot_active", True) and str_user_id != ADMIN_ID:
-        bot.send_message(user_id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
+        bot.send_message(message.chat.id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
 
-    send_random_sticker(user_id)
+    send_random_sticker(message.chat.id)
 
     if user_id not in db["users"] and str_user_id != ADMIN_ID:
         db["users"].append(user_id)
@@ -237,7 +252,7 @@ def start_command(message):
             except Exception as e:
                 print(f"Login Notice Error: {e}")
 
-    if str_user_id == ADMIN_ID:
+    if str_user_id == ADMIN_ID or message.from_user.username == "TWEBii":
         stats_text = (
             "• لوحة التحكم 🤖\n\n"
             "—— إحصائيات اليوم ——\n"
@@ -245,19 +260,19 @@ def start_command(message):
             "📈 الرسائل: نشط\n"
             "⚡️ متوسط الاستجابة: سريع\n"
         )
-        bot.send_message(user_id, stats_text, reply_markup=get_admin_keyboard())
+        bot.send_message(message.chat.id, stats_text, reply_markup=get_admin_keyboard())
     else:
         if os.path.exists(LOGO_PATH):
             with open(LOGO_PATH, 'rb') as photo:
-                bot.send_photo(user_id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
+                bot.send_photo(message.chat.id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
         else:
-            bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
+            bot.send_message(message.chat.id, db.get("start_text"), reply_markup=build_user_keyboard())
 
 # ================= معالج طلبات الملصقات والروابط =================
 @bot.message_handler(func=lambda m: m.text and any(word in m.text for word in ["ملصق", "ملصقات", "ستيكر", "ستيكرات"]))
 def handle_sticker_request(message):
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     
     if str(user_id) in db.get("banned_users", []):
         return
@@ -265,14 +280,12 @@ def handle_sticker_request(message):
         return
         
     text = message.text
-    # إذا طلب المستخدم رابط حزمة الملصقات
     if any(w in text for w in ["رابط", "روابط"]):
         set_name = random.choice(STICKER_SETS)
         link = f"https://t.me/addstickers/{set_name}"
         bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:\n{link}")
     else:
-        # إذا طلب ملصقاً عادياً
-        send_random_sticker(user_id)
+        send_random_sticker(message.chat.id)
 
 # ================= معالج روابط السوشيال ميديا للتحميل =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
@@ -281,12 +294,12 @@ def handle_social_links(message):
         return
         
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     
     if str(user_id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
-    bot.send_chat_action(user_id, 'upload_video')
+    bot.send_chat_action(message.chat.id, 'upload_video')
     sent_msg = bot.reply_to(message, "⏳ جاري استخراج المعالجة والتحميل من الرابط، يرجى الانتظار قليلاً...")
     
     file_path = download_video(message.text.strip())
@@ -294,24 +307,24 @@ def handle_social_links(message):
     if file_path and os.path.exists(file_path):
         try:
             with open(file_path, 'rb') as f:
-                bot.send_video(user_id, f, caption="✅ تم التحميل بنجاح عبر بوت TWEB")
-            bot.delete_message(user_id, sent_msg.message_id)
+                bot.send_video(message.chat.id, f, caption="✅ تم التحميل بنجاح عبر بوت TWEB")
+            bot.delete_message(message.chat.id, sent_msg.message_id)
         except Exception as e:
-            bot.edit_message_text("⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً.", user_id, sent_msg.message_id)
+            bot.edit_message_text("⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً.", message.chat.id, sent_msg.message_id)
         
         try:
             os.remove(file_path)
         except:
             pass
     else:
-        bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", user_id, sent_msg.message_id)
+        bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", message.chat.id, sent_msg.message_id)
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
 def handle_files(message):
     db = load_db()
-    if str(message.chat.id) in db.get("banned_users", []): return
-    if not db.get("bot_active", True) and str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) in db.get("banned_users", []): return
+    if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
 
     text = (
         "📸 **أداة الترجمة الذكية للمستندات والصور**\n\n"
@@ -327,20 +340,20 @@ def handle_files(message):
 @bot.message_handler(func=lambda m: True, content_types=['sticker'])
 def handle_sticker(message):
     db = load_db()
-    if str(message.chat.id) in db.get("banned_users", []): return
-    if not db.get("bot_active", True) and str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) in db.get("banned_users", []): return
+    if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
     
     emoji = message.sticker.emoji if message.sticker.emoji else "غير معروف"
     prompt = f"المستخدم أرسل لك ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة جداً."
     
     bot.send_chat_action(message.chat.id, 'typing')
-    ai_response = get_ai_reply(message.chat.id, prompt)
+    ai_response = get_ai_reply(message, prompt)
     bot.reply_to(message, ai_response)
 
 # ================= معالجة تفاعلات الأزرار الشفافة =================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    user_id = call.message.chat.id
+    user_id = call.from_user.id
     db = load_db()
 
     if call.data == "user_back_home":
@@ -391,7 +404,7 @@ def callback_handler(call):
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
-    if str(user_id) == ADMIN_ID:
+    if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
             stats_text = (
                 "• لوحة التحكم 🤖\n\n"
@@ -489,7 +502,7 @@ def callback_handler(call):
 
 # ================= معالجة مدخلات البيانات الفوقية =================
 def process_add_start_button(message):
-    if str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) != ADMIN_ID: return
     try:
         text, url = message.text.split('-', 1)
         db = load_db()
@@ -500,14 +513,14 @@ def process_add_start_button(message):
         bot.reply_to(message, "⚠️ صيغة الإدخال خاطئة! `اسم الزر - الرابط`")
 
 def process_edit_start_text(message):
-    if str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
     db["start_text"] = message.text
     save_db(db)
     bot.reply_to(message, "✅ تم تحديث النص.")
 
 def process_broadcast(message):
-    if str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
     success = 0
     bot.reply_to(message, "جاري الإذاعة...")
@@ -519,7 +532,7 @@ def process_broadcast(message):
     bot.send_message(message.chat.id, f"📢 تمت الإذاعة لـ {success} مستخدم.")
 
 def process_ban_action(message, mode_ban=True):
-    if str(message.chat.id) != ADMIN_ID: return
+    if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
     target = message.text.strip().replace("@", "")
     
@@ -538,7 +551,7 @@ def process_ban_action(message, mode_ban=True):
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 def handle_user_messages(message):
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     text = message.text
 
     if str(user_id) in db.get("banned_users", []) or (message.from_user.username and message.from_user.username in db.get("banned_users", [])):
@@ -547,10 +560,12 @@ def handle_user_messages(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
         return
 
+    is_admin_user = (str(user_id) == ADMIN_ID or (message.from_user.username and message.from_user.username.lower() == "twebii"))
+
     if message.chat.type in ['group', 'supergroup']:
         is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB"])
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
-        if not (is_mentioned or is_reply_to_bot):
+        if not (is_mentioned or is_reply_to_bot or is_admin_user):
             return
 
     user_key = str(user_id)
@@ -559,16 +574,16 @@ def handle_user_messages(message):
     db["msg_counters"] = counters
     save_db(db)
 
-    bot.send_chat_action(user_id, 'typing')
-    ai_response = get_ai_reply(user_id, text)
+    bot.send_chat_action(message.chat.id, 'typing')
+    ai_response = get_ai_reply(message, text)
     bot.reply_to(message, ai_response)
 
     if counters[user_key] % 10 == 0:
-        send_random_sticker(user_id)
+        send_random_sticker(message.chat.id)
 
 def process_user_support_message(message, today):
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     
     if "support_logs" not in db: db["support_logs"] = {}
     db["support_logs"][str(user_id)] = today
@@ -589,7 +604,7 @@ def process_user_support_message(message, today):
 
 def process_user_instructions(message):
     db = load_db()
-    user_id = message.chat.id
+    user_id = message.from_user.id
     
     if "user_instructions" not in db: db["user_instructions"] = {}
     db["user_instructions"][str(user_id)] = message.text
@@ -598,5 +613,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت لإرسال الروابط والملصقات بنجاح")
+    print("تم تحديث البوت ليتعرف عليك تلقائياً في أي مكان ومجموعة بنجاح")
     bot.infinity_polling()
