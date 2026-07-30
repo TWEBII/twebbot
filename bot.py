@@ -13,7 +13,7 @@ from downloader import download_video
 TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
 GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
-LOGO_PATH = "logo.jpg" 
+VIDEO_PATH = "video.mp4" 
 
 bot = telebot.TeleBot(TOKEN)
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -132,13 +132,13 @@ def get_user_back_button():
 
 def edit_user_interface(call, text, markup):
     try:
-        if call.message.photo:
+        if call.message.photo or call.message.video:
             bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
         else:
             bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         try:
-            if call.message.photo:
+            if call.message.photo or call.message.video:
                 bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
             else:
                 bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
@@ -262,9 +262,9 @@ def start_command(message):
         )
         bot.send_message(message.chat.id, stats_text, reply_markup=get_admin_keyboard())
     else:
-        if os.path.exists(LOGO_PATH):
-            with open(LOGO_PATH, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
+        if os.path.exists(VIDEO_PATH):
+            with open(VIDEO_PATH, 'rb') as video:
+                bot.send_video(message.chat.id, video, caption=db.get("start_text"), reply_markup=build_user_keyboard())
         else:
             bot.send_message(message.chat.id, db.get("start_text"), reply_markup=build_user_keyboard())
 
@@ -560,12 +560,10 @@ def handle_user_messages(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
         return
 
-    # تم إصلاح الشرط هنا: التحقق من ذكر الأسماء أو الرد أصبح إجبارياً للجميع في المجموعات (بما فيهم المطور)
     if message.chat.type in ['group', 'supergroup']:
         is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB", "أحمد", "احمد"])
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         
-        # إذا لم يتم ذكر الأسماء ولم يتم الرد على البوت، يتم التجاهل فوراً
         if not (is_mentioned or is_reply_to_bot):
             return
 
