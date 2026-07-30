@@ -9,7 +9,7 @@ import uuid
 import time
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from downloader import download_media, get_video_info  # تم تحديثه ليتطابق مع downloader.py الجديد
+from downloader import download_media, get_video_info
 import games  # استدعاء ملف الألعاب الخارجي
 
 # ================= الإعدادات الأساسية =================
@@ -18,14 +18,11 @@ GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
 
-# ذاكرة مؤقتة لحفظ الروابط لتجنب مشكلة الـ 64 حرف في أزرار تيليجرام الشفافة
+# ذاكرة مؤقتة لحفظ الروابط لتجنب مشكلة الـ 64 حرف في أزرار تيليجرام
 pending_downloads = {}
 
 bot = telebot.TeleBot(TOKEN)
-
-# تفعيل معالجات الألعاب من ملف games.py أولاً لضمان عملها بشكل سليم
 games.setup_game_handlers(bot)
-
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 DB_FILE = "database.json"
@@ -37,7 +34,6 @@ STICKER_SETS = [
     "Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"
 ]
 
-# إعداد قائمة أوامر البوت الجانبية (Menu) في زاوية البوت
 try:
     bot.set_my_commands([
         BotCommand("/start", "رسالة البدء")
@@ -51,24 +47,16 @@ def load_db():
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if "login_notice" not in data:
-                    data["login_notice"] = True
-                if "notified_users" not in data:
-                    data["notified_users"] = []
+                if "login_notice" not in data: data["login_notice"] = True
+                if "notified_users" not in data: data["notified_users"] = []
                 return data
         except:
             pass
     return {
-        "users": [],
-        "banned_users": [],
-        "notified_users": [],
-        "bot_active": True,
-        "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
-        "custom_buttons": [],
-        "support_logs": {},
-        "user_instructions": {},
-        "msg_counters": {},
-        "login_notice": True
+        "users": [], "banned_users": [], "notified_users": [],
+        "bot_active": True, "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
+        "custom_buttons": [], "support_logs": {}, "user_instructions": {},
+        "msg_counters": {}, "login_notice": True
     }
 
 def save_db(db):
@@ -164,7 +152,7 @@ def send_random_sticker(chat_id):
         if sticker_set.stickers:
             sticker = random.choice(sticker_set.stickers)
             bot.send_sticker(chat_id, sticker.file_id)
-    except Exception as e:
+    except Exception:
         pass
 
 def clean_ai_response(text):
@@ -180,7 +168,6 @@ def get_ai_reply(message, user_message):
     
     user_id = message.from_user.id
     username = message.from_user.username or ""
-    
     is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
     
     db = load_db()
@@ -197,7 +184,7 @@ def get_ai_reply(message, user_message):
     
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB), واسمك تويب (Tweb أو TWEB). "
-        f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
+        f"الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
         f"{dev_directive}\n"
         f"قواعد الإجابة الصارمة:\n"
         f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
@@ -217,7 +204,7 @@ def get_ai_reply(message, user_message):
         )
         raw_reply = response.choices[0].message.content
         return clean_ai_response(raw_reply)
-    except Exception as e:
+    except Exception:
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
 
 # ================= معالجة الأوامر والرسائل الأساسية =================
@@ -227,9 +214,7 @@ def start_command(message):
     user_id = message.from_user.id
     str_user_id = str(user_id)
     
-    if str_user_id in db.get("banned_users", []):
-        return
-
+    if str_user_id in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str_user_id != ADMIN_ID:
         bot.send_message(message.chat.id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
@@ -240,8 +225,7 @@ def start_command(message):
         db["users"].append(user_id)
         save_db(db)
 
-    if "notified_users" not in db:
-        db["notified_users"] = []
+    if "notified_users" not in db: db["notified_users"] = []
 
     if str_user_id not in db["notified_users"] and str_user_id != ADMIN_ID:
         db["notified_users"].append(str_user_id)
@@ -252,7 +236,6 @@ def start_command(message):
                 name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
                 user_link = f"[{name}](tg://user?id={user_id})"
                 username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
-                
                 notice_msg = (
                     f"🔔 دخل شخص جديد للبوت!\n"
                     f"👤 الحساب: {user_link}\n"
@@ -260,8 +243,7 @@ def start_command(message):
                     f"🆔 الأيدي: `{user_id}`"
                 )
                 bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
-            except Exception as e:
-                print(f"Login Notice Error: {e}")
+            except: pass
 
     if str_user_id == ADMIN_ID or message.from_user.username == "TWEBii":
         stats_text = (
@@ -285,10 +267,8 @@ def handle_sticker_request(message):
     db = load_db()
     user_id = message.from_user.id
     
-    if str(user_id) in db.get("banned_users", []):
-        return
-    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
-        return
+    if str(user_id) in db.get("banned_users", []): return
+    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
         
     text = message.text
     if any(w in text for w in ["رابط", "روابط"]):
@@ -298,7 +278,6 @@ def handle_sticker_request(message):
     else:
         send_random_sticker(message.chat.id)
 
-# ================= دوال مساعدة لتنسيق العرض =================
 def format_duration(seconds):
     if not seconds: return "00:00"
     m, s = divmod(int(seconds), 60)
@@ -312,33 +291,25 @@ def format_views(views):
     elif views >= 1_000: return f"{views / 1_000:.1f}K"
     return str(views)
 
-# ================= معالج روابط السوشيال ميديا وعرض القائمة =================
+# ================= معالج روابط السوشيال ميديا =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
-    if "translate.google.com" in message.text:
-        return
+    if "translate.google.com" in message.text: return
         
     db = load_db()
     user_id = message.from_user.id
-    
     if str(user_id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
     url = message.text.strip()
-    
-    # 1. إظهار رسالة جاري جلب المعلومات
     status_msg = bot.reply_to(message, "⏳ جاري استخراج تفاصيل المقطع، يرجى الانتظار...")
-    
-    # 2. الحصول على تفاصيل المقطع
     info = get_video_info(url)
     
     if not info:
         bot.edit_message_text("❌ عذراً، لم أتمكن من جلب تفاصيل هذا الرابط. تأكد من صلاحية الرابط وأنه مدعوم.", 
-                              chat_id=message.chat.id, 
-                              message_id=status_msg.message_id)
+                              chat_id=message.chat.id, message_id=status_msg.message_id)
         return
 
-    # 3. إعداد النصوص والأزرار التفاعلية
     title = info.get('title', 'بدون عنوان')
     duration = format_duration(info.get('duration', 0))
     views = format_views(info.get('view_count', 0))
@@ -350,10 +321,9 @@ def handle_social_links(message):
         f"⏱ **المدة:** {duration}\n"
         f"👁 **المشاهدات:** {views}\n"
         f"👤 **القناة:** {uploader}\n\n"
-        f"👇 **اختر الصيغة المطلوبة للتحميل:**"
+        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 45MB):**"
     )
     
-    # إنشاء معرف قصير فريد للرابط لحفظه في الذاكرة (لتجاوز حد الـ 64 حرفاً لتيليجرام)
     short_id = str(uuid.uuid4())[:8]
     pending_downloads[short_id] = url
     
@@ -364,26 +334,23 @@ def handle_social_links(message):
     )
     markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
     
-    # 4. تعديل الرسالة لإظهار الأزرار
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
                           reply_markup=markup, parse_mode="Markdown")
 
-# ================= معالج أزرار التحميل التفاعلية مع عداد التحميل (1 إلى 100) =================
+# ================= معالج أزرار التحميل =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_download_callback(call):
     data_parts = call.data.split("|", 1)
     action = data_parts[0]
     short_id = data_parts[1]
     
-    # استرجاع الرابط الأصلي من الذاكرة
     url = pending_downloads.get(short_id)
     if not url:
         bot.answer_callback_query(call.id, "⚠️ انتهت صلاحية هذا الزر، يرجى إرسال الرابط مجدداً.", show_alert=True)
         return
 
-    bot.answer_callback_query(call.id, "⏳ جاري التحميل بالصيغة المطلوبة...")
+    bot.answer_callback_query(call.id, "⏳ جاري المعالجة...")
     
-    # محاكاة عداد التحميل التفاعلي من 1 إلى 100 لتجربة مستخدم مذهلة
     progress_msg = bot.edit_message_text(
         text="📥 **جاري بدء التحميل والمعالجة...**\n`[▒▒▒▒▒▒▒▒▒▒] 0%`", 
         chat_id=call.message.chat.id, 
@@ -391,28 +358,28 @@ def handle_download_callback(call):
         parse_mode="Markdown"
     )
     
-    percentages = [20, 45, 75, 95]
-    bars = [
-        "`[████▒▒▒▒▒▒] 40%`",
-        "`[███████▒▒▒] 70%`",
-        "`[██████████] 100%`"
-    ]
-    
     try:
+        time.sleep(0.3)
         bot.edit_message_text(text=f"📥 **جاري تحميل الملف...**\n`[████▒▒▒▒▒▒] 40%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
-        time.sleep(0.5)
+        time.sleep(0.3)
         bot.edit_message_text(text=f"📥 **جاري معالجة وتجهيز الملف...**\n`[███████▒▒▒] 70%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
-        time.sleep(0.5)
     except:
         pass
 
-    mode = "video" if action == "dl_vid" else "video" # تم تحديثه ليدعم الدوال الصحيحة في downloader.py
     media_type = 'video' if action == "dl_vid" else 'audio'
     
-    # استدعاء دالة التحميل من ملف downloader.py
     file_path = download_media(url, media_type=media_type)
     
-    if file_path and os.path.exists(file_path):
+    # فحص إذا كان الحجم كبيراً
+    if file_path == "TOO_LARGE":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id, 
+            message_id=call.message.message_id, 
+            text="❌ عذراً، حجم هذا الملف يتجاوز الحد المسموح به (45 ميجابايت). حاول مع مقطع أقصر."
+        )
+        return
+        
+    elif file_path and os.path.exists(file_path):
         try:
             with open(file_path, 'rb') as f:
                 back_markup = InlineKeyboardMarkup()
@@ -420,36 +387,30 @@ def handle_download_callback(call):
                 
                 if media_type == "video":
                     bot.send_video(
-                        call.message.chat.id, 
-                        f, 
-                        caption="✅ تم التنزيل بحجم صغير وجودة ممتازة عبر بوت TWEB",
+                        call.message.chat.id, f, 
+                        caption="✅ تم التنزيل بنجاح عبر بوت TWEB",
                         reply_markup=back_markup
                     )
                 else:
                     bot.send_audio(
-                        call.message.chat.id,
-                        f,
+                        call.message.chat.id, f,
                         caption="🎵 الملف الصوتي عبر بوت TWEB",
                         reply_markup=back_markup
                     )
             
-            # مسح الرابط من الذاكرة وحذف رسالة التقدم
             pending_downloads.pop(short_id, None)
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
-        except Exception as e:
+        except Exception:
             bot.edit_message_text(
                 chat_id=call.message.chat.id, 
                 message_id=call.message.message_id, 
-                text="⚠️ حدث خطأ أثناء إرسال الملف لتيليجرام، قد يكون حجمه كبيراً جداً."
+                text="⚠️ حدث خطأ أثناء إرسال الملف لتيليجرام."
             )
         finally:
-            # 🧹 الحذف التلقائي للملف من السيرفر لتنظيف المساحة
             if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
+                try: os.remove(file_path)
+                except: pass
     else:
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
@@ -457,7 +418,7 @@ def handle_download_callback(call):
             text="❌ عذراً، فشل تحميل الملف من هذا الرابط."
         )
 
-# ================= التفاعل مع الصور والمستندات والملصقات =================
+# ================= التفاعل مع الملفات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
 def handle_files(message):
     db = load_db()
@@ -488,7 +449,7 @@ def handle_sticker(message):
     ai_response = get_ai_reply(message, prompt)
     bot.reply_to(message, ai_response)
 
-# ================= معالجة تفاعلات الأزرار الشفافة =================
+# ================= معالجة تفاعلات الأزرار الشفافة والإدارة =================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
@@ -537,11 +498,12 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو (حتى مدة طويلة):\n"
+            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 45 ميجابايت):\n"
             "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
+    # أوامر الإدارة
     if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
             stats_text = (
@@ -750,6 +712,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت بالكامل، وربطه بنظام عداد التحميل وأزرار الرجوع وحل مشكلة تيك توك بنجاح!")
+    print("تم تحديث البوت بالكامل، وربطه بنظام تقييد الحجم وأزرار الرجوع بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
