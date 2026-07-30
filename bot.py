@@ -1,4 +1,4 @@
-Import telebot
+import telebot
 import os
 import json
 import random
