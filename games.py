@@ -138,14 +138,13 @@ def setup_game_handlers(bot):
         except Exception as e:
             print(f"RPS Play Error: {e}")
 
-    # معالج استعلامات الـ Inline لإظهار قائمة النتائج عند النقر على زر التحدي
+    # معالج استعلامات الـ Inline لإرسال الألعاب
     @bot.inline_handler(func=lambda query: True)
     def send_inline_games(inline_query):
         query_text = inline_query.query
         results = []
         
         if "XO" in query_text:
-            # لوحة أزرار لعبة XO للمشاركة
             xo_board = InlineKeyboardMarkup()
             xo_board.row(
                 InlineKeyboardButton("⬜", callback_data="xo_0"),
@@ -177,7 +176,6 @@ def setup_game_handlers(bot):
             )
             
         elif "RPS" in query_text:
-            # أزرار لعبة حجر ورقة مقص للمشاركة
             rps_board = InlineKeyboardMarkup()
             rps_board.row(
                 InlineKeyboardButton("🪨 حجر", callback_data="rps_inline_rock"),
@@ -202,3 +200,28 @@ def setup_game_handlers(bot):
             bot.answer_inline_query(inline_query.id, results, cache_time=1)
         except Exception as e:
             print(f"Inline Error: {e}")
+
+    # معالجة ضغطات الأزرار داخل رسائل الانلاين (لإيقاف الدوران والتفاعل)
+    @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith("xo_") or call.data.startswith("rps_inline_")))
+    def handle_inline_game_clicks(call):
+        data = call.data
+        
+        # إيقاف الدوران فوراً وإرسال تنبيه للمستخدم الضاغط
+        bot.answer_callback_query(call.id, "تم تسجيل اختيارك بنجاح! ✅")
+        
+        try:
+            if data.startswith("xo_"):
+                bot.edit_message_text(
+                    inline_message_id=call.inline_message_id,
+                    text="🎮 **لعبة XO جارية...**\nتم النقر على الخانة بنجاح.",
+                    parse_mode="Markdown"
+                )
+            elif data.startswith("rps_inline_"):
+                choice_name = "حجر 🪨" if "rock" in data else ("ورقة 📄" if "paper" in data else "مقص ✂️")
+                bot.edit_message_text(
+                    inline_message_id=call.inline_message_id,
+                    text=f"✂️ **تم اختيار ({choice_name}) في التحدي!**",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            print(f"Inline Click Handling Error: {e}")
