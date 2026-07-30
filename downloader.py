@@ -1,44 +1,93 @@
-import os
 import re
-import yt_dlp
+import urllib.parse
+import requests
+import urllib3
 
-def extract_clean_url(text):
-    """استخراج الرابط النظيف حصراً من أي نص مرسل (مثل رسائل مشاركة تيك توك)"""
-    url_match = re.search(r'https?://[^\s]+', text)
-    if url_match:
-        # إزالة أي رموز إضافية قد تكون ملتصقة بنهاية الرابط مثل علامة التعجب أو الفاصلة
-        return url_match.group(0).rstrip('!#.,;')
-    return text
+# تعطيل تحذيرات SSL لضمان استقرار الطلبات
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def download_video(input_text):
-    """
-    دالة محدثة لتحميل الفيديو مع استخراج الرابط تلقائياً وضبط الجودة لتناسب حدود تلغرام
-    """
-    url = extract_clean_url(input_text)
-    
-    ydl_opts = {
-        # تقييد الجودة إلى 720p كحد أقصى لضمان عدم تجاوز حجم الملف 50 ميجابايت لفيديو مدته 5 دقائق
-        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
-        'outtmpl': 'downloads/%(id)s.%(ext)s',
-        'noplaylist': True,
-        'socket_timeout': 30,
-        'merge_output_format': 'mp4',
+def down_api(url):
+    api_url = "https://api.vidssave.com/api/contentsite_api/media/parse"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-    
-    # إنشاء مجلد التحميل إن لم يكن موجوداً
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
-        
+    payload = {
+        "auth": "20250901majwlqo",
+        "domain": "api-ak.vidssave.com",
+        "origin": "source",
+        "link": url
+    }
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
-            
-            # التأكد من أن صيغة الملف أصبحت mp4 بعد الدمج
-            if not file_path.endswith('.mp4') and os.path.exists(file_path.rsplit('.', 1)[0] + '.mp4'):
-                file_path = file_path.rsplit('.', 1)[0] + '.mp4'
-            return file_path
-            
+        response = requests.post(api_url, data=payload, headers=headers, timeout=30, verify=False)
+        return response.json()
     except Exception as e:
-        print(f"❌ Download Error: {e}")
-        return None
+        return {}
+
+def search_youtube(query):
+    search_url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(query)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    try:
+        response = requests.get(search_url, headers=headers, verify=False)
+        html = response.text
+        match = re.search(r'\/watch\?v=[^"\s<>]+', html)
+        if match:
+            clean_path = match.group(0).replace('\\u0026', '&')
+            return "https://www.youtube.com" + clean_path
+    except Exception:
+        pass
+    return None
+
+def extract_media(query_or_url, download_type="video"):
+    target_url = query_or_url
+    # التحقق مما إذا كان المدخل رابطاً أم نص بحث
+    if not (query_or_url.startswith('http://') or query_or_url.startswith('https://')):
+        search_res = search_youtube(query_or_url)
+        if search_res:
+            target_url = search_res
+
+    api_res = down_api(target_url)
+    media_url = ""
+
+    data = api_res.get('data', {})
+    media_items = data.get('media', [])
+
+    if media_items and isinstance(media_items, list):
+        for item in media_items:
+            if download_type == 'audio' and item.get('type') === 'audio' if False else item.get('type') == 'audio':
+                resources = item.get('resources', [])
+                if resources:
+                    media_url = resources[0].get('download_url', '')
+                    break
+            elif download_type == 'video' and item.get('type') == 'video':
+                resources = item.get('resources', [])
+                if resources:
+                    def get_quality(r):
+                        q = str(r.get('quality', '0'))
+                        numbers = re.findall(r'\d+', q)
+                        return int(numbers[0]) if numbers else 0
+                    
+                    resources.sort(key=get_quality, reverse=True)
+                    media_url = resources[0].get('download_url', '')
+                    break
+
+    # التحقق الاحتياطي من الروابط العامة إذا لم يتم العثور عليها في القائمة المباشرة
+    if not media_url and 'resources' in data:
+        resources = data.get('resources', [])
+        if download_type == 'video':
+            def get_quality(r):
+                q = str(r.get('quality', '0'))
+                numbers = re.findall(r'\d+', q)
+                return int(numbers[0]) if numbers else 0
+            resources.sort(key=get_quality, reverse=True)
+            
+        for res_item in resources:
+            if download_type == 'audio' and res_item.get('type') == 'audio':
+                media_url = res_item.get('download_url', '')
+                break
+            if download_type == 'video' and res_item.get('type') == 'video':
+                media_url = res_item.get('download_url', '')
+                break
+
+    return media_url
