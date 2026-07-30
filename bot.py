@@ -11,7 +11,7 @@ from flask import Flask, render_template_string, request, redirect
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import yt_dlp
-import games  # ملف الألعاب الخارجي
+import games
 
 # ================= الإعدادات الأساسية =================
 TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
@@ -273,7 +273,6 @@ def get_ai_reply(message, user_message):
     username = message.from_user.username or ""
     is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
     db = load_db()
-    custom_instr = db.get("user_instructions", {}).get(str(user_id), "لا توجد شروط مخصصة.")
     
     dev_directive = ""
     if is_developer:
@@ -349,7 +348,6 @@ def handle_social_links(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
     url = message.text.strip()
-    
     railway_domain = "https://twebbot-production.up.railway.app"
     web_page_url = f"{railway_domain}/dl?url={url}"
     
@@ -620,8 +618,7 @@ if __name__ == "__main__":
     
     while True:
         try:
-            # تم إزالة restart_on_change لمنع الخطأ واستعادة استجابة البوت
-            bot.infinity_polling(timeout=20, long_polling_timeout=20)
+            bot.infinity_polling(none_stop=True, interval=0, timeout=20, long_polling_timeout=20)
         except Exception as e:
             print(f"Polling error: {e}")
             time.sleep(5)
