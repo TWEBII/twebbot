@@ -1,60 +1,48 @@
-import os
 import yt_dlp
+import os
 
-def get_video_info(url):
-    ydl_opts = {
-        'quiet': True, 
-        'no_warnings': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return {
-                'title': info.get('title', 'فيديو بدون عنوان'),
-                'duration': info.get('duration', 0),
-                'views': info.get('view_count', 0)
-            }
-    except Exception as e:
-        print(f"Info Error: {e}")
-    return None
+# إنشاء مجلد للتحميلات إذا لم يكن موجوداً لتجنب الأخطاء
+if not os.path.exists('downloads'):
+    os.makedirs('downloads')
 
-def download_video(url, output_filename="video.mp4", mode="video"):
-    if mode == "audio":
-        out_file = output_filename.replace('.mp4', '.m4a') # استخدام صيغة m4a الأخف والأسرع لتيليجرام
-        if os.path.exists(out_file):
-            try: os.remove(out_file)
-            except: pass
-            
+def download_media(url, media_type='video'):
+    """
+    دالة لتحميل الفيديو أو الصوت بشكل آمن ومتوافق مع تيليجرام
+    """
+    if media_type == 'video':
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'outtmpl': out_file,
-            'quiet': True,
-            'no_warnings': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
-        }
-    else:
-        out_file = output_filename
-        if os.path.exists(out_file):
-            try: os.remove(out_file)
-            except: pass
-            
-        ydl_opts = {
-            'format': 'best[height<=360][ext=mp4]/best[height<=360]/best',
-            'outtmpl': out_file,
-            'quiet': True,
-            'no_warnings': True,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': 'downloads/%(title)s.%(ext)s',
+            'merge_output_format': 'mp4', # إجبار الدمج بصيغة mp4 لحل مشكلة تيك توك
             'geo_bypass': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            'nocheckcertificate': True,
+            'quiet': True,
+            'no_warnings': True,
+        }
+    else: # في حالة اختيار الصوت
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'm4a',
+            }],
+            'outtmpl': 'downloads/%(title)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
         }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        if os.path.exists(out_file):
-            return out_file
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+            # تصحيح الامتداد النهائي لضمان قبوله في تيليجرام
+            if media_type == 'audio' and not filename.endswith('.m4a'):
+                filename = filename.rsplit('.', 1)[0] + '.m4a'
+            elif media_type == 'video' and not filename.endswith('.mp4'):
+                filename = filename.rsplit('.', 1)[0] + '.mp4'
+                
+            return filename
     except Exception as e:
-        print(f"❌ خطأ التحميل: {e}")
-
-    return None
+        print(f"Error downloading: {e}")
+        return None
