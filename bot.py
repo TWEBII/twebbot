@@ -21,6 +21,9 @@ VIDEO_PATH = "video.mp4"
 # ذاكرة مؤقتة لحفظ الروابط لتجنب مشكلة الـ 64 حرف في أزرار تيليجرام
 pending_downloads = {}
 
+# ذاكرة لتتبع وقت العداد ومنع حظر الـ API (FloodWait)
+last_edit_time = {}
+
 bot = telebot.TeleBot(TOKEN)
 games.setup_game_handlers(bot)
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -337,7 +340,7 @@ def handle_social_links(message):
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
                           reply_markup=markup, parse_mode="Markdown")
 
-# ================= معالج أزرار التحميل =================
+# ================= معالج أزرار التحميل (المُحدث والآمن) =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_download_callback(call):
     data_parts = call.data.split("|", 1)
@@ -352,35 +355,58 @@ def handle_download_callback(call):
     bot.answer_callback_query(call.id, "⏳ جاري المعالجة...")
     
     progress_msg = bot.edit_message_text(
-        text="📥 **جاري بدء التحميل والمعالجة...**\n`[▒▒▒▒▒▒▒▒▒▒] 0%`", 
+        text="📥 **جاري تجهيز التحميل...**\n`[0.0%] ⏳`", 
         chat_id=call.message.chat.id, 
         message_id=call.message.message_id, 
         parse_mode="Markdown"
     )
     
-    try:
-        time.sleep(0.3)
-        bot.edit_message_text(text=f"📥 **جاري تحميل الملف...**\n`[████▒▒▒▒▒▒] 40%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
-        time.sleep(0.3)
-        bot.edit_message_text(text=f"📥 **جاري معالجة وتجهيز الملف...**\n`[███████▒▒▒] 70%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
-    except:
-        pass
+    # دالة فرعية للعداد الفعلي يتم تحديثها كل 3 ثوانٍ لمنع حظر تيليجرام
+    def progress_updater(percent):
+        current_time = time.time()
+        msg_id = progress_msg.message_id
+        if current_time - last_edit_time.get(msg_id, 0) > 3:
+            try:
+                bot.edit_message_text(
+                    text=f"📥 **جاري التحميل الفعلي...**\n`[{percent:.1f}%] ⏳`", 
+                    chat_id=call.message.chat.id, 
+                    message_id=msg_id, 
+                    parse_mode="Markdown"
+                )
+                last_edit_time[msg_id] = current_time
+            except Exception:
+                pass
 
     media_type = 'video' if action == "dl_vid" else 'audio'
     
-    file_path = download_media(url, media_type=media_type)
+    # استدعاء دالة التحميل مع تمرير العداد الفعلي
+    file_path = download_media(url, media_type=media_type, progress_callback=progress_updater)
     
-    # فحص إذا كان الحجم كبيراً
+    # تنظيف الذاكرة المؤقتة للعداد
+    last_edit_time.pop(progress_msg.message_id, None)
+
+    # معالجة النتائج وإرسال الملف
     if file_path == "TOO_LARGE":
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
-            message_id=call.message.message_id, 
+            message_id=progress_msg.message_id, 
             text="❌ عذراً، حجم هذا الملف يتجاوز الحد المسموح به (45 ميجابايت). حاول مع مقطع أقصر."
         )
-        return
-        
+    elif file_path == "UNAVAILABLE":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id, 
+            message_id=progress_msg.message_id, 
+            text="❌ عذراً، هذا الفيديو غير متاح (قد يكون محذوفاً أو مقيداً)."
+        )
     elif file_path and os.path.exists(file_path):
         try:
+            bot.edit_message_text(
+                text="✅ **اكتمل التحميل، جاري الرفع لتيليجرام...**", 
+                chat_id=call.message.chat.id, 
+                message_id=progress_msg.message_id, 
+                parse_mode="Markdown"
+            )
+            
             with open(file_path, 'rb') as f:
                 back_markup = InlineKeyboardMarkup()
                 back_markup.add(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
@@ -399,13 +425,14 @@ def handle_download_callback(call):
                     )
             
             pending_downloads.pop(short_id, None)
-            bot.delete_message(call.message.chat.id, call.message.message_id)
+            bot.delete_message(call.message.chat.id, progress_msg.message_id)
             
-        except Exception:
+        except Exception as e:
+            print(f"Telegram Send Error: {e}")
             bot.edit_message_text(
                 chat_id=call.message.chat.id, 
-                message_id=call.message.message_id, 
-                text="⚠️ حدث خطأ أثناء إرسال الملف لتيليجرام."
+                message_id=progress_msg.message_id, 
+                text="⚠️ حدث خطأ أثناء رفع الملف إلى تيليجرام."
             )
         finally:
             if os.path.exists(file_path):
@@ -414,8 +441,8 @@ def handle_download_callback(call):
     else:
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
-            message_id=call.message.message_id, 
-            text="❌ عذراً، فشل تحميل الملف من هذا الرابط."
+            message_id=progress_msg.message_id, 
+            text="❌ عذراً، فشل التحميل. تأكد من أن الرابط يعمل بشكل صحيح."
         )
 
 # ================= التفاعل مع الملفات والملصقات =================
@@ -712,6 +739,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت بالكامل، وربطه بنظام تقييد الحجم وأزرار الرجوع بنجاح!")
+    print("تم تحديث البوت بالكامل، وربطه بنظام العداد الفعلي وحل مشاكل الروابط بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
