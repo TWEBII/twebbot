@@ -41,34 +41,25 @@ try:
 except Exception as e:
     print(f"Error setting commands: {e}")
 
-# ================= إدارة قاعدة البيانات (مع تحسين الأمان والاستقرار) =================
+# ================= إدارة قاعدة البيانات =================
 def load_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if "login_notice" not in data:
-                    data["login_notice"] = True
-                if "notified_users" not in data:
-                    data["notified_users"] = []
-                if "banned_users" not in data:
-                    data["banned_users"] = []
-                if "users" not in data:
-                    data["users"] = []
+                if "login_notice" not in data: data["login_notice"] = True
+                if "notified_users" not in data: data["notified_users"] = []
+                if "banned_users" not in data: data["banned_users"] = []
+                if "users" not in data: data["users"] = []
                 return data
         except Exception as e:
             print(f"DB Load Error: {e}")
     return {
-        "users": [],
-        "banned_users": [],
-        "notified_users": [],
+        "users": [], "banned_users": [], "notified_users": [],
         "bot_active": True,
         "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
-        "custom_buttons": [],
-        "support_logs": {},
-        "user_instructions": {},
-        "msg_counters": {},
-        "login_notice": True
+        "custom_buttons": [], "support_logs": {}, "user_instructions": {},
+        "msg_counters": {}, "login_notice": True
     }
 
 def save_db(db):
@@ -79,26 +70,6 @@ def save_db(db):
         os.replace(temp_file, DB_FILE)
     except Exception as e:
         print(f"DB Save Error: {e}")
-
-# ================= دالة رفع الملفات الكبيرة عبر خدمة file.io الموثوقة =================
-def upload_to_external_host(file_path):
-    """دالة لرفع الملفات الكبيرة إلى خدمة file.io السريعة والمستقرة على السحابة"""
-    url = "https://file.io"
-    try:
-        with open(file_path, "rb") as f:
-            files = {"file": f}
-            response = requests.post(url, files=files, timeout=180)
-            
-            print(f"File.io Status Code: {response.status_code}")
-            print(f"File.io Response Text: {response.text}")
-            
-            if response.status_code == 200:
-                data_json = response.json()
-                if data_json.get("success"):
-                    return data_json.get("link")
-    except Exception as e:
-        print(f"External Upload Error: {e}")
-    return None
 
 # ================= لوحات تحكم الإدارة =================
 def get_admin_keyboard():
@@ -193,8 +164,7 @@ def send_random_sticker(chat_id):
         pass
 
 def clean_ai_response(text):
-    if not text:
-        return text
+    if not text: return text
     cleaned = re.sub(r'\b(tôi|Tôî|aquí)\b', '', text, flags=re.IGNORECASE)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
@@ -205,7 +175,6 @@ def get_ai_reply(message, user_message):
     
     user_id = message.from_user.id
     username = message.from_user.username or ""
-    
     is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
     
     db = load_db()
@@ -216,18 +185,17 @@ def get_ai_reply(message, user_message):
         dev_directive = (
             f"[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
             f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
-            f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
-            f"ولا تنكر أبداً أنه مطورك وصانعك."
+            f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك."
         )
     
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB), واسمك تويب (Tweb أو TWEB). "
-        f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
+        f"الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
         f"{dev_directive}\n"
         f"قواعد الإجابة الصارمة:\n"
         f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
-        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.\n"
-        f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
+        f"2. يمنع منعاً باتاً استخدام أي كلمات أجنبية.\n"
+        f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم: [{custom_instr}]."
     )
     
     try:
@@ -240,8 +208,7 @@ def get_ai_reply(message, user_message):
             temperature=0.1,
             max_tokens=1024
         )
-        raw_reply = response.choices[0].message.content
-        return clean_ai_response(raw_reply)
+        return clean_ai_response(response.choices[0].message.content)
     except Exception as e:
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
 
@@ -252,9 +219,7 @@ def start_command(message):
     user_id = message.from_user.id
     str_user_id = str(user_id)
     
-    if str_user_id in db.get("banned_users", []):
-        return
-
+    if str_user_id in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str_user_id != ADMIN_ID:
         bot.send_message(message.chat.id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
@@ -265,25 +230,17 @@ def start_command(message):
         db["users"].append(user_id)
         save_db(db)
 
-    if "notified_users" not in db:
-        db["notified_users"] = []
+    if "notified_users" not in db: db["notified_users"] = []
 
     if str_user_id not in db["notified_users"] and str_user_id != ADMIN_ID:
         db["notified_users"].append(str_user_id)
         save_db(db)
-        
         if db.get("login_notice", True):
             try:
                 name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
                 user_link = f"[{name}](tg://user?id={user_id})"
                 username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
-                
-                notice_msg = (
-                    f"🔔 دخل شخص جديد للبوت!\n"
-                    f"👤 الحساب: {user_link}\n"
-                    f"🔗 اليوزر: {username}\n"
-                    f"🆔 الأيدي: `{user_id}`"
-                )
+                notice_msg = f"🔔 دخل شخص جديد للبوت!\n👤 الحساب: {user_link}\n🔗 اليوزر: {username}\n🆔 الأيدي: `{user_id}`"
                 bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
             except Exception as e:
                 print(f"Login Notice Error: {e}")
@@ -295,7 +252,6 @@ def start_command(message):
             f"👥 إجمالي المستخدمين: {len(db['users'])}\n"
             f"🚫 المحظورون: {len(db.get('banned_users', []))}\n"
             "📈 حالة البوت: نشط ومستقر\n"
-            "⚡️ متوسط الاستجابة: فوري\n"
         )
         bot.send_message(message.chat.id, stats_text, reply_markup=get_admin_keyboard())
     else:
@@ -305,30 +261,10 @@ def start_command(message):
         else:
             bot.send_message(message.chat.id, db.get("start_text"), reply_markup=build_user_keyboard())
 
-# ================= معالج طلبات الملصقات والروابط =================
-@bot.message_handler(func=lambda m: m.text and any(word in m.text for word in ["ملصق", "ملصقات", "ستيكر", "ستيكرات"]))
-def handle_sticker_request(message):
-    db = load_db()
-    user_id = message.from_user.id
-    
-    if str(user_id) in db.get("banned_users", []):
-        return
-    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
-        return
-        
-    text = message.text
-    if any(w in text for w in ["رابط", "روابط"]):
-        set_name = random.choice(STICKER_SETS)
-        link = f"https://t.me/addstickers/{set_name}"
-        bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:\n{link}")
-    else:
-        send_random_sticker(message.chat.id)
-
-# ================= معالج روابط السوشيال ميديا للتحميل (مع فحص الحجم وتوقيع TWEB) =================
+# ================= معالج روابط السوشيال ميديا (فتح موقع خارجي والتحميل بالمتصفح فوراً) =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
-    if "translate.google.com" in message.text:
-        return
+    if "translate.google.com" in message.text: return
         
     db = load_db()
     user_id = message.from_user.id
@@ -336,74 +272,31 @@ def handle_social_links(message):
     if str(user_id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
-    bot.send_chat_action(message.chat.id, 'upload_video')
-    sent_msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو (حتى 5 دقائق بجودة عالية)، يرجى الانتظار قليلاً...")
+    url = message.text.strip()
     
-    file_path = download_video(message.text)
+    # توفير أزرار فورية تفتح مواقع التحميل السريعة بالمتصفح بناءً على المنصة
+    markup = InlineKeyboardMarkup()
     
-    if file_path and os.path.exists(file_path):
-        try:
-            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            
-            if file_size_mb > 49:
-                bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=sent_msg.message_id,
-                    text="📥 الملف كبير جداً (>50 ميجابايت)، يتم الآن رفعه عبر نظام TWEB الخارجي..."
-                )
-                
-                external_link = upload_to_external_host(file_path)
-                
-                if external_link:
-                    bot.edit_message_text(
-                        chat_id=message.chat.id,
-                        message_id=sent_msg.message_id,
-                        text=(
-                            "✨ **TWEB Media Service**\n"
-                            "━━━━━━━━━━━━━━━━━━━\n"
-                            "✅ تم رفع الفيديو بنجاح على الرابط الخارجي:\n\n"
-                            f"🔗 [اضغط هنا للتحميل المباشر]({external_link})\n\n"
-                            "⚡ **TWEB Bot Production**"
-                        ),
-                        parse_mode="Markdown"
-                    )
-                else:
-                    bot.edit_message_text(
-                        chat_id=message.chat.id,
-                        message_id=sent_msg.message_id,
-                        text="❌ حدث خطأ أثناء رفع الملف عبر خدمة TWEB الخارجية."
-                    )
-            else:
-                with open(file_path, 'rb') as f:
-                    bot.send_video(
-                        message.chat.id, 
-                        f, 
-                        caption=(
-                            "✨ **TWEB Media Service**\n"
-                            "✅ تم التنزيل والإرسال بنجاح\n"
-                            "⚡ **TWEB Bot Production**"
-                        ),
-                        parse_mode="Markdown"
-                    )
-                bot.delete_message(message.chat.id, sent_msg.message_id)
-        except Exception as e:
-            bot.edit_message_text(
-                chat_id=message.chat.id, 
-                message_id=sent_msg.message_id, 
-                text=f"⚠️ حدث خطأ أثناء إرسال الفيديو: {e}"
-            )
-        finally:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
+    if "tiktok.com" in url:
+        markup.add(InlineKeyboardButton("🌐 اضغط هنا للتحميل السريع بالمتصفح", url=f"https://ssstik.io/en?url={url}"))
+    elif "instagram.com" in url:
+        markup.add(InlineKeyboardButton("🌐 اضغط هنا للتحميل السريع بالمتصفح", url=f"https://snapinsta.app/"))
+    elif "facebook.com" in url or "fb.watch" in url:
+        markup.add(InlineKeyboardButton("🌐 اضغط هنا للتحميل السريع بالمتصفح", url=f"https://fdown.net/"))
+    elif "youtube.com" in url or "youtu.be" in url:
+        markup.add(InlineKeyboardButton("🌐 اضغط هنا للتحميل السريع بالمتصفح", url=f"https://en.loader.to/4-youtube-downloader.html"))
     else:
-        bot.edit_message_text(
-            chat_id=message.chat.id, 
-            message_id=sent_msg.message_id, 
-            text="❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة."
-        )
+        markup.add(InlineKeyboardButton("🌐 اضغط هنا للتحميل السريع بالمتصفح", url=url))
+
+    text_reply = (
+        "✨ **TWEB Media Service**\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ **تم استلام الرابط بنجاح!**\n"
+        "لتجنب بطء السيرفر، يمكنك التحميل المباشر وبأعلى جودة عبر المتصفح الخارجي فوراً بالضغط على الزر أدناه:\n\n"
+        "⚡ **TWEB Bot Production**"
+    )
+    
+    bot.reply_to(message, text_reply, reply_markup=markup, parse_mode="Markdown")
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -414,11 +307,7 @@ def handle_files(message):
 
     text = (
         "📸 **أداة الترجمة الذكية للمستندات والصور**\n\n"
-        "لقد قمت بإرسال ملف أو صورة! للترجمة الاحترافية والدقيقة، "
-        "نوصي باستخدام أداة ترجمة جوجل المخصصة، والتي تتميز بـ:\n\n"
-        "✨ **السرعة والدقة** في ترجمة النصوص داخل الصور.\n"
-        "📄 **دعم ملفات** الـ PDF والـ Word وغيرها.\n"
-        "🔒 **الحفاظ على تنسيق** الملف الأصلي.\n\n"
+        "لقد قمت بإرسال ملف أو صورة! للترجمة الاحترافية والدقيقة، نوصي باستخدام أداة ترجمة جوجل:\n\n"
         "🔗 [اضغط هنا للدخول لموقع الترجمة وبدء العمل مباشرة](https://translate.google.com.sa/?sl=auto&tl=ar&op=docs)"
     )
     bot.reply_to(message, text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -430,11 +319,9 @@ def handle_sticker(message):
     if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
     
     emoji = message.sticker.emoji if message.sticker.emoji else "غير معروف"
-    prompt = f"المستخدم أرسل لي ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة جداً."
-    
+    prompt = f"المستخدم أرسل ملصقاً بإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة."
     bot.send_chat_action(message.chat.id, 'typing')
-    ai_response = get_ai_reply(message, prompt)
-    bot.reply_to(message, ai_response)
+    bot.reply_to(message, get_ai_reply(message, prompt))
 
 # ================= معالجة تفاعلات الأزرار الشفافة =================
 @bot.callback_query_handler(func=lambda call: True)
@@ -450,7 +337,6 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         sub_text = (
             "🔐 **قسم دعم وتطوير البوت ماليًا**\n\n"
-            "يمكنك المساهمة في استمرار وتطوير خدماتنا عبر قنوات الدعم التالية:\n\n"
             "▪️ **معرف بايننس (Binance ID):** `907262941`\n"
             "▪️ **رقم آسيا سيل (AsiaCell):** `07704701242`"
         )
@@ -458,35 +344,28 @@ def callback_handler(call):
         
     elif call.data == "user_menu_contact":
         bot.answer_callback_query(call.id)
-        contact_text = (
-            "📣 **معلومات التواصل الرسمية والمباشرة مع المطور:**\n\n"
-            "▪️ **الحساب الشخصي للمطور:** @TWEBii\n"
-            "▪️ **بوت التواصل المباشر:** @TWEBI_BOT\n\n"
-            "يسعدنا استقبال استفساراتكم في أي وقت."
-        )
+        contact_text = "📣 **معلومات التواصل الرسمية مع المطور:**\n\n▪️ **المطور:** @TWEBii\n▪️ **بوت التواصل:** @TWEBI_BOT"
         edit_user_interface(call, contact_text, get_user_back_button())
         
     elif call.data == "user_menu_support":
         bot.answer_callback_query(call.id)
         today = datetime.datetime.now(pytz.timezone('Asia/Baghdad')).strftime('%Y-%m-%d')
         if db.get("support_logs", {}).get(str(user_id)) == today:
-            bot.send_message(user_id, "⚠️ عذراً عزيزي، لقد قمت بإرسال رسالة دعم اليوم بالفعل. يُسمح برسالة واحدة يومياً.")
+            bot.send_message(user_id, "⚠️ عذراً، لقد قمت بإرسال رسالة دعم اليوم بالفعل.")
             return
-            
-        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠\n\nيرجى كتابة وإرسال تفاصيل الخطأ أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيهها لمالك البوت (بلاغ واحد يومياً).")
+        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠\n\nيرجى كتابة رسالتك وسأقوم بتوجيهها للمطور:")
         bot.register_next_step_handler(msg, process_user_support_message, today)
         
     elif call.data == "user_menu_guide":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار)، وسيقوم بتطبيقها فوراً.")
+        msg = bot.send_message(user_id, "دليل الاستخدام. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك:")
         bot.register_next_step_handler(msg, process_user_instructions)
 
     elif call.data == "user_menu_download_guide":
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو (حتى مدة 5 دقائق):\n"
-            "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
+            "فقط قم بـ **إرسال الرابط مباشرة** هنا في المحادثة، وسيوفر لك البوت زراً فورياً لفتح موقع التحميل الخارجي والتحميل عبر المتصفح بثوانٍ معدودة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
@@ -495,11 +374,9 @@ def callback_handler(call):
             bot.answer_callback_query(call.id)
             stats_text = (
                 "• لوحة التحكم الإدارية 🤖\n\n"
-                "—— إحصائيات النظام ——\n"
                 f"👥 إجمالي المستخدمين: {len(db['users'])}\n"
                 f"🚫 المحظورون: {len(db.get('banned_users', []))}\n"
                 "📈 حالة البوت: نشط ومستقر\n"
-                "⚡️ متوسط الاستجابة: فوري\n"
             )
             bot.edit_message_text(stats_text, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
@@ -533,11 +410,7 @@ def callback_handler(call):
 
         elif call.data == "menu_subscribe":
             bot.answer_callback_query(call.id)
-            support_view = (
-                "🔐 **معلومات الدعم الفعالة حالياً:**\n\n"
-                f"▪️ معرف بايننس: `907262941`\n"
-                f"▪️ رقم آسيا سيل: `07704701242`"
-            )
+            support_view = "🔐 **معلومات الدعم الفعالة:**\n\n▪️ بايننس: `907262941`\n▪️ آسيا سيل: `07704701242`"
             bot.edit_message_text(support_view, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard(), parse_mode="Markdown")
 
         elif call.data == "users_count":
@@ -548,7 +421,7 @@ def callback_handler(call):
 
         elif call.data == "menu_broadcast":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(user_id, "📣 أرسل رسالة الإذاعة الآن (تستهدف جميع المستخدمين):")
+            msg = bot.send_message(user_id, "📣 أرسل رسالة الإذاعة الآن:")
             bot.register_next_step_handler(msg, process_broadcast)
 
         elif call.data == "menu_system_support":
@@ -622,8 +495,7 @@ def process_edit_start_text(message):
 def process_broadcast(message):
     if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
-    success = 0
-    failed = 0
+    success, failed = 0, 0
     sent_msg = bot.reply_to(message, "⏳ جاري بدء عملية الإذاعة للمستخدمين...")
     for user_id in db["users"]:
         try:
@@ -631,13 +503,12 @@ def process_broadcast(message):
             success += 1
         except:
             failed += 1
-    bot.edit_message_text(chat_id=message.chat.id, message_id=sent_msg.message_id, text=f"📢 تمت الإذاعة بنجاح!\n\n✅ تم الإرسال إلى: {success} مستخدم\n❌ فشل الإرسال إلى: {failed} مستخدم")
+    bot.edit_message_text(chat_id=message.chat.id, message_id=sent_msg.message_id, text=f"📢 تمت الإذاعة بنجاح!\n\n✅ تم الإرسال إلى: {success}\n❌ فشل: {failed}")
 
 def process_ban_action(message, mode_ban=True):
     if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
     target = message.text.strip().replace("@", "")
-    
     if mode_ban:
         if target not in db["banned_users"]:
             db["banned_users"].append(target)
@@ -662,16 +533,13 @@ def handle_user_messages(message):
 
     if str(user_id) in db.get("banned_users", []) or (message.from_user.username and message.from_user.username in db.get("banned_users", [])):
         return
-
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
         return
 
     if message.chat.type in ['group', 'supergroup']:
         is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB", "أحمد", "احمد"])
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
-        
-        if not (is_mentioned or is_reply_to_bot):
-            return
+        if not (is_mentioned or is_reply_to_bot): return
 
     user_key = str(user_id)
     counters = db.get("msg_counters", {})
@@ -680,8 +548,7 @@ def handle_user_messages(message):
     save_db(db)
 
     bot.send_chat_action(message.chat.id, 'typing')
-    ai_response = get_ai_reply(message, text)
-    bot.reply_to(message, ai_response)
+    bot.reply_to(message, get_ai_reply(message, text))
 
     if counters[user_key] % 10 == 0:
         send_random_sticker(message.chat.id)
@@ -689,18 +556,12 @@ def handle_user_messages(message):
 def process_user_support_message(message, today):
     db = load_db()
     user_id = message.from_user.id
-    
     if "support_logs" not in db: db["support_logs"] = {}
     db["support_logs"][str(user_id)] = today
     save_db(db)
     
     username = f"@{message.from_user.username}" if message.from_user.username else "بدون يوزر"
-    report_text = (
-        f"📩 **بلاغ دعم فني جديد**\n\n"
-        f"👤 أيدي: `{user_id}`\n"
-        f"🔗 يوزر: {username}\n\n"
-        f"💬 النص:\n{message.text}"
-    )
+    report_text = f"📩 **بلاغ دعم فني جديد**\n\n👤 أيدي: `{user_id}`\n🔗 يوزر: {username}\n\n💬 النص:\n{message.text}"
     try:
         bot.send_message(ADMIN_ID, report_text)
         bot.reply_to(message, "✅ تم إرسال بلاغك للمطور بنجاح.")
@@ -710,13 +571,11 @@ def process_user_support_message(message, today):
 def process_user_instructions(message):
     db = load_db()
     user_id = message.from_user.id
-    
     if "user_instructions" not in db: db["user_instructions"] = {}
     db["user_instructions"][str(user_id)] = message.text
     save_db(db)
-    
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث ملف bot.py بنجاح والتحويل إلى خدمة file.io لرفع الملفات الكبيرة!")
+    print("تم تحديث البوت لفتح مواقع التحميل الخارجية بالمتصفح فوراً دون أي تأخير أو مشاكل في السيرفر!")
     bot.infinity_polling()
