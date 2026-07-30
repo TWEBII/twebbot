@@ -5,9 +5,10 @@ import random
 import datetime
 import pytz
 import re
+import uuid
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from downloader import download_video
+from downloader import download_video, get_video_info  # تم تحديث الاستدعاء
 import games  # استدعاء ملف الألعاب الخارجي
 
 # ================= الإعدادات الأساسية =================
@@ -15,6 +16,9 @@ TOKEN = "8898698558:AAEDmDHjT4g6h3eLRvs5uWCnrT0BDOosOjQ"
 GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
+
+# ذاكرة مؤقتة لحفظ الروابط لتجنب مشكلة الـ 64 حرف في أزرار تيليجرام الشفافة
+pending_downloads = {}
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -293,7 +297,21 @@ def handle_sticker_request(message):
     else:
         send_random_sticker(message.chat.id)
 
-# ================= معالج روابط السوشيال ميديا للتحميل (مع الحذف التلقائي) =================
+# ================= دوال مساعدة لتنسيق العرض =================
+def format_duration(seconds):
+    if not seconds: return "00:00"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h > 0: return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+def format_views(views):
+    if not views: return "0"
+    if views >= 1_000_000: return f"{views / 1_000_000:.1f}M"
+    elif views >= 1_000: return f"{views / 1_000:.1f}K"
+    return str(views)
+
+# ================= معالج روابط السوشيال ميديا وعرض القائمة =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text:
@@ -305,30 +323,98 @@ def handle_social_links(message):
     if str(user_id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
-    bot.send_chat_action(message.chat.id, 'upload_video')
-    sent_msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو (حتى 5 دقائق بجودة عالية)، يرجى الانتظار قليلاً...")
+    url = message.text.strip()
     
-    # تمرير الرابط لدالة التحميل لاستخراج الملف الفعلي
-    file_path = download_video(message.text)
+    # 1. إظهار رسالة جاري جلب المعلومات
+    status_msg = bot.reply_to(message, "⏳ جاري استخراج تفاصيل المقطع، يرجى الانتظار...")
+    
+    # 2. الحصول على تفاصيل المقطع
+    info = get_video_info(url)
+    
+    if not info:
+        bot.edit_message_text("❌ عذراً، لم أتمكن من جلب تفاصيل هذا الرابط. تأكد من صلاحية الرابط وأنه مدعوم.", 
+                              chat_id=message.chat.id, 
+                              message_id=status_msg.message_id)
+        return
+
+    # 3. إعداد النصوص والأزرار التفاعلية
+    title = info.get('title', 'بدون عنوان')
+    duration = format_duration(info.get('duration', 0))
+    views = format_views(info.get('view_count', 0))
+    uploader = info.get('uploader', 'غير معروف')
+    
+    text = (
+        f"🎬 **التفاصيل المستخرجة:**\n\n"
+        f"📌 **العنوان:** {title}\n"
+        f"⏱ **المدة:** {duration}\n"
+        f"👁 **المشاهدات:** {views}\n"
+        f"👤 **القناة:** {uploader}\n\n"
+        f"👇 **اختر الصيغة المطلوبة للتحميل:**"
+    )
+    
+    # إنشاء معرف قصير فريد للرابط لحفظه في الذاكرة (لتجاوز حد الـ 64 حرفاً لتيليجرام)
+    short_id = str(uuid.uuid4())[:8]
+    pending_downloads[short_id] = url
+    
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("تحميل كـ فيديو 🎥", callback_data=f"dl_vid|{short_id}"),
+        InlineKeyboardButton("تحميل كـ صوت 🎵", callback_data=f"dl_aud|{short_id}")
+    )
+    
+    # 4. تعديل الرسالة لإظهار الأزرار
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
+                          reply_markup=markup, parse_mode="Markdown")
+
+# ================= معالج أزرار التحميل التفاعلية (فيديو / صوت) =================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
+def handle_download_callback(call):
+    data_parts = call.data.split("|", 1)
+    action = data_parts[0]
+    short_id = data_parts[1]
+    
+    # استرجاع الرابط الأصلي من الذاكرة
+    url = pending_downloads.get(short_id)
+    if not url:
+        bot.answer_callback_query(call.id, "⚠️ انتهت صلاحية هذا الزر، يرجى إرسال الرابط مجدداً.", show_alert=True)
+        return
+
+    bot.answer_callback_query(call.id, "⏳ جاري التحميل بالصيغة المطلوبة...")
+    bot.edit_message_text("⏳ جاري معالجة وتحميل الملف، يرجى الانتظار...", 
+                          chat_id=call.message.chat.id, 
+                          message_id=call.message.message_id)
+    
+    mode = "video" if action == "dl_vid" else "audio"
+    file_path = download_video(url, output_filename="video.mp4", mode=mode)
     
     if file_path and os.path.exists(file_path):
         try:
             with open(file_path, 'rb') as f:
-                bot.send_video(
-                    message.chat.id, 
-                    f, 
-                    caption="✅ تم التنزيل والإرسال بنجاح عبر بوت TWEB",
-                    parse_mode="Markdown"
-                )
-            bot.delete_message(message.chat.id, sent_msg.message_id)
+                if mode == "video":
+                    bot.send_video(
+                        call.message.chat.id, 
+                        f, 
+                        caption="✅ تم التنزيل بحجم صغير وجودة ممتازة عبر بوت TWEB"
+                    )
+                else:
+                    bot.send_audio(
+                        call.message.chat.id,
+                        f,
+                        caption="🎵 الملف الصوتي عبر بوت TWEB"
+                    )
+            
+            # مسح الرابط من الذاكرة لتخفيف الضغط وحذف رسالة "جاري المعالجة"
+            pending_downloads.pop(short_id, None)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            
         except Exception as e:
             bot.edit_message_text(
-                chat_id=message.chat.id, 
-                message_id=sent_msg.message_id, 
-                text="⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً."
+                chat_id=call.message.chat.id, 
+                message_id=call.message.message_id, 
+                text="⚠️ حدث خطأ أثناء إرسال الملف لتيليجرام، قد يكون حجمه كبيراً جداً."
             )
         finally:
-            # 🧹 الحذف التلقائي: مسح ملف الفيديو من السيرفر فوراً بعد الانتهاء
+            # 🧹 الحذف التلقائي للملف من السيرفر
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -336,9 +422,9 @@ def handle_social_links(message):
                     pass
     else:
         bot.edit_message_text(
-            chat_id=message.chat.id, 
-            message_id=sent_msg.message_id, 
-            text="❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة."
+            chat_id=call.message.chat.id, 
+            message_id=call.message.message_id, 
+            text="❌ عذراً، فشل تحميل الملف من هذا الرابط."
         )
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
