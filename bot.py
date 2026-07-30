@@ -80,16 +80,21 @@ def save_db(db):
     except Exception as e:
         print(f"DB Save Error: {e}")
 
-# ================= دالة رفع الملفات الكبيرة لموقع خارجي =================
+# ================= دالة رفع الملفات الكبيرة لموقع خارجي (محدثة بمعالجة المهلة) =================
 def upload_to_external_host(file_path):
-    """دالة لرفع الملفات التي تتجاوز حد تيليجرام (50 ميجابايت) إلى موقع خارجي مع توقيع TWEB"""
+    """دالة محسنة لرفع الملفات الكبيرة إلى Catbox مع مهلة زمنية مناسبة ومعالجة الاستجابة"""
     url = "https://catbox.moe/user/api.php"
     try:
         with open(file_path, "rb") as f:
             files = {"fileToUpload": f}
-            data = {"reqtype": "fileupload", "userhash": ""}
-            response = requests.post(url, data=data, files=files)
-            if response.status_code == 200:
+            data = {"reqtype": "fileupload"}
+            # زيادة المهلة الزمنية إلى 180 ثانية لضمان اكتمال رفع الملفات الكبيرة مثل 88 ميجابايت
+            response = requests.post(url, data=data, files=files, timeout=180)
+            
+            print(f"Catbox Status Code: {response.status_code}")
+            print(f"Catbox Response Text: {response.text}")
+            
+            if response.status_code == 200 and "https://" in response.text:
                 return response.text.strip()
     except Exception as e:
         print(f"External Upload Error: {e}")
@@ -338,7 +343,6 @@ def handle_social_links(message):
     
     if file_path and os.path.exists(file_path):
         try:
-            # حساب حجم الملف بالميجابايت
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             
             if file_size_mb > 49:
@@ -714,5 +718,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث ملف bot.py بنجاح مع إضافة نظام الرفع الخارجي وتوقيع TWEB للفيديوهات الكبيرة!")
+    print("تم تحديث ملف bot.py بنجاح مع إضافة معالجة المهلة الزمنية لرفع الملفات الكبيرة!")
     bot.infinity_polling()
