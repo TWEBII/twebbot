@@ -6,7 +6,7 @@ if not os.path.exists('downloads'):
 
 def get_video_info(url):
     """
-    استخراج مبسط جداً لتفاصيل الفيديو لتجنب الحظر (متروك كما هو لأنه يعمل بامتياز)
+    استخراج تفاصيل الفيديو (محفوظة وثابتة تماماً كما طلبت)
     """
     if 'youtube.com' in url or 'youtu.be' in url:
         return {'title': 'YouTube Video', 'duration': 0, 'id': url.split('/')[-1].split('?')[0]}
@@ -37,7 +37,9 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    # إعدادات أساسية مشتركة
+    # التحقق مما إذا كان الرابط يتبع لتيك توك لتطبيق إعدادات مخصصة للصوت
+    is_tiktok = 'tiktok.com' in url
+
     common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
@@ -45,15 +47,27 @@ def download_media(url, media_type='video', progress_callback=None):
         'no_warnings': True,
         'max_filesize': max_size_bytes,
         'socket_timeout': 30,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android']
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        }
     }
+
+    if not is_tiktok:
+        common_opts.update({
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android']
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            }
+        })
+    else:
+        # إعدادات خاصة لتك توك لتجاوز حماية الروابط الصوتية
+        common_opts.update({
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': 'https://www.tiktok.com/',
+            }
+        })
 
     if media_type == 'video':
         ydl_opts = {
@@ -63,10 +77,9 @@ def download_media(url, media_type='video', progress_callback=None):
             'merge_output_format': 'mp4',
         }
     else: 
-        # طلب الصوت بصيغة ميديا خفيفة بدون الحاجة لـ ffmpeg postprocessors المعقدة
         ydl_opts = {
             **common_opts,
-            'format': 'bestaudio/best',
+            'format': 'best/bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
         }
 
@@ -79,14 +92,12 @@ def download_media(url, media_type='video', progress_callback=None):
             filename = ydl.prepare_filename(info)
             
             if media_type == 'audio':
-                # التأكد من مسار الملف الصوتي الناتج وإرجاعه مباشرة
                 base_name = os.path.splitext(filename)[0]
                 for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus']:
                     candidate = base_name + ext
                     if os.path.exists(candidate):
                         return candidate
                 
-                # البحث الشامل في المجلد إذا لم يتطابق الامتداد
                 video_id = info.get('id', '')
                 for f in os.listdir('downloads'):
                     if str(video_id) in f:
