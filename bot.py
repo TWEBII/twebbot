@@ -14,7 +14,7 @@ import yt_dlp
 import games
 
 # ================= الإعدادات الأساسية =================
-TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
+TOKEN = "8898698558:AAEDmDHjT4g6h3eLRvs5uWCnrT0BDOosOjQ"
 GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
