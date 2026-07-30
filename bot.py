@@ -8,6 +8,7 @@ import re
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_video
+import games  # استدعاء ملف الألعاب الخارجي
 
 # ================= الإعدادات الأساسية =================
 TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
@@ -16,6 +17,10 @@ ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
 
 bot = telebot.TeleBot(TOKEN)
+
+# تفعيل معالجات الألعاب من ملف games.py أولاً لضمان عملها بشكل سليم
+games.setup_game_handlers(bot)
+
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 DB_FILE = "database.json"
@@ -117,6 +122,7 @@ def build_user_keyboard():
                InlineKeyboardButton("التواصل 📣", callback_data="user_menu_contact"))
     markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="user_menu_support"),
                InlineKeyboardButton("دليل الاستخدام ❓", callback_data="user_menu_guide"))
+    markup.row(InlineKeyboardButton("🎮 الألعاب والترفيه", callback_data="user_menu_games"))
     markup.row(InlineKeyboardButton("تحميل من السوشيال ميديا 📥", callback_data="user_menu_download_guide"))
     markup.row(InlineKeyboardButton("ترجمة صور ومستندات 📸", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
     
@@ -344,7 +350,7 @@ def handle_sticker(message):
     if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
     
     emoji = message.sticker.emoji if message.sticker.emoji else "غير معروف"
-    prompt = f"المستخدم أرسل لك ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة جداً."
+    prompt = f"المستخدم أرسل لي ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة جداً."
     
     bot.send_chat_action(message.chat.id, 'typing')
     ai_response = get_ai_reply(message, prompt)
@@ -403,6 +409,20 @@ def callback_handler(call):
             "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
+
+    elif call.data == "user_menu_games":
+        bot.answer_callback_query(call.id)
+        games_markup = InlineKeyboardMarkup()
+        games_markup.row(InlineKeyboardButton("🎮 لعبة XO", callback_data="game_xo_main"))
+        games_markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية", callback_data="user_back_home"))
+        edit_user_interface(call, "🎮 **قسم الألعاب والترفيه**\n\nاختر اللعبة التي تود لعبها:", games_markup)
+
+    elif call.data == "game_xo_main":
+        bot.answer_callback_query(call.id)
+        xo_markup = InlineKeyboardMarkup()
+        xo_markup.row(InlineKeyboardButton("💜 تحدي اللعبة", switch_inline_query="XO_Challenge"))
+        xo_markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="user_menu_games"))
+        edit_user_interface(call, "🎮 **أهلاً بك في قسم لعبة XO 🕹️**\n\nانقر على زر التحدي أدناه لمشاركة اللعبة مع أصدقائك في أي محادثة:", xo_markup)
 
     if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
@@ -612,5 +632,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت ليتعرف عليك تلقائياً في أي مكان ومجموعة بنجاح")
+    print("تم تحديث البوت وربطه بملف الألعاب الخارجي (games.py) بنجاح")
     bot.infinity_polling()
