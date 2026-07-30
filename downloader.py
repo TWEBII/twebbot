@@ -6,9 +6,8 @@ if not os.path.exists('downloads'):
 
 def get_video_info(url):
     """
-    استخراج مبسط جداً لتفاصيل الفيديو لتجنب الحظر
+    استخراج مبسط جداً لتفاصيل الفيديو لتجنب الحظر (متروك كما هو لأنه يعمل بامتياز)
     """
-    # إذا كان الرابط يوتيوب، نتجاوز جلب التفاصيل المسبق لمنع حظر البوت ونترك التحميل المباشر يتولى الأمر
     if 'youtube.com' in url or 'youtu.be' in url:
         return {'title': 'YouTube Video', 'duration': 0, 'id': url.split('/')[-1].split('?')[0]}
 
@@ -25,7 +24,6 @@ def get_video_info(url):
             return info
     except Exception as e:
         print(f"Error fetching info: {e}")
-        # إرجاع بيانات افتراضية حتى لا يتوقف البوت أبداً
         return {'title': 'Media', 'id': 'temp_id'}
 
 def download_media(url, media_type='video', progress_callback=None):
@@ -39,14 +37,14 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    ydl_opts = {
+    # إعدادات أساسية مشتركة
+    common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
         'max_filesize': max_size_bytes,
         'socket_timeout': 30,
-        # استخدام مشغل الـ ios أو android لتجاوز قيود يوتيوب وتيك توك بدون أخطاء
         'extractor_args': {
             'youtube': {
                 'player_client': ['ios', 'android']
@@ -58,21 +56,19 @@ def download_media(url, media_type='video', progress_callback=None):
     }
 
     if media_type == 'video':
-        ydl_opts.update({
+        ydl_opts = {
+            **common_opts,
             'format': 'best[filesize<=45M]/bestvideo+bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'merge_output_format': 'mp4',
-        })
+        }
     else: 
-        ydl_opts.update({
-            'format': 'best/bestaudio/best',
+        # طلب الصوت بصيغة ميديا خفيفة بدون الحاجة لـ ffmpeg postprocessors المعقدة
+        ydl_opts = {
+            **common_opts,
+            'format': 'bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        })
+        }
 
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
@@ -83,14 +79,19 @@ def download_media(url, media_type='video', progress_callback=None):
             filename = ydl.prepare_filename(info)
             
             if media_type == 'audio':
+                # التأكد من مسار الملف الصوتي الناتج وإرجاعه مباشرة
                 base_name = os.path.splitext(filename)[0]
-                mp3_file = base_name + '.mp3'
-                if os.path.exists(mp3_file):
-                    return mp3_file
+                for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus']:
+                    candidate = base_name + ext
+                    if os.path.exists(candidate):
+                        return candidate
+                
+                # البحث الشامل في المجلد إذا لم يتطابق الامتداد
+                video_id = info.get('id', '')
                 for f in os.listdir('downloads'):
-                    if f.endswith('.mp3'):
+                    if str(video_id) in f:
                         return os.path.join('downloads', f)
-                return filename.rsplit('.', 1)[0] + '.mp3'
+                return filename
             else:
                 base_name = os.path.splitext(filename)[0]
                 mp4_file = base_name + '.mp4'
