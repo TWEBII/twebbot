@@ -39,7 +39,10 @@ def load_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "login_notice" not in data:
+                    data["login_notice"] = True
+                return data
         except:
             pass
     return {
@@ -50,7 +53,8 @@ def load_db():
         "custom_buttons": [],
         "support_logs": {},
         "user_instructions": {},
-        "msg_counters": {}
+        "msg_counters": {},
+        "login_notice": True
     }
 
 def save_db(db):
@@ -70,7 +74,7 @@ def get_admin_keyboard():
     markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="menu_system_support"))
     
     status_ban = "✅" if "ban_notice" in db else "🚫"
-    status_login = "✅" if "login_notice" in db else "🔔"
+    status_login = "✅" if db.get("login_notice", True) else "🚫"
     markup.row(InlineKeyboardButton(f"إشعار الحظر {status_ban}", callback_data="toggle_ban_notice"), 
                InlineKeyboardButton(f"إشعار الدخول {status_login}", callback_data="toggle_login_notice"))
                
@@ -193,13 +197,26 @@ def start_command(message):
     # إرسال ملصق عشوائي ترحيبي مع كل start
     send_random_sticker(user_id)
 
-    if user_id not in db["users"]:
+    # التحقق من المستخدم الجديد وإرسال إشعار للمطور
+    if user_id not in db["users"] and str(user_id) != ADMIN_ID:
         db["users"].append(user_id)
         save_db(db)
-        if db.get("login_notice", False):
+        if db.get("login_notice", True):
             try:
-                bot.send_message(ADMIN_ID, f"🔔 دخل شخص جديد للبوت!\n👤 الأيدي: `{user_id}`", parse_mode="Markdown")
-            except: pass
+                name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
+                user_link = f"[{name}](tg://user?id={user_id})"
+                
+                username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
+                
+                notice_msg = (
+                    f"🔔 دخل شخص جديد للبوت!\n"
+                    f"👤 الحساب: {user_link}\n"
+                    f"🔗 اليوزر: {username}\n"
+                    f"🆔 الأيدي: `{user_id}`"
+                )
+                bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
+            except Exception as e:
+                print(f"Login Notice Error: {e}")
 
     if str(user_id) == ADMIN_ID:
         stats_text = (
@@ -413,7 +430,7 @@ def callback_handler(call):
             bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
         elif call.data == "toggle_login_notice":
-            db["login_notice"] = not db.get("login_notice", False)
+            db["login_notice"] = not db.get("login_notice", True)
             save_db(db)
             bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
