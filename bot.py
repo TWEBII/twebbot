@@ -43,12 +43,15 @@ def load_db():
                 data = json.load(f)
                 if "login_notice" not in data:
                     data["login_notice"] = True
+                if "notified_users" not in data:
+                    data["notified_users"] = []
                 return data
         except:
             pass
     return {
         "users": [],
         "banned_users": [],
+        "notified_users": [],
         "bot_active": True,
         "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
         "custom_buttons": [],
@@ -196,19 +199,30 @@ def get_ai_reply(user_id, user_message):
 def start_command(message):
     db = load_db()
     user_id = message.chat.id
+    str_user_id = str(user_id)
     
-    if str(user_id) in db.get("banned_users", []):
+    if str_user_id in db.get("banned_users", []):
         return
 
-    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
+    if not db.get("bot_active", True) and str_user_id != ADMIN_ID:
         bot.send_message(user_id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
 
     send_random_sticker(user_id)
 
-    if user_id not in db["users"] and str(user_id) != ADMIN_ID:
+    # تحديث قائمة المستخدمين الإجمالية إذا لم تكن موجودة
+    if user_id not in db["users"] and str_user_id != ADMIN_ID:
         db["users"].append(user_id)
         save_db(db)
+
+    # إرسال إشعار الدخول مرة واحدة فقط للمستخدم الجديد تماماً
+    if "notified_users" not in db:
+        db["notified_users"] = []
+
+    if str_user_id not in db["notified_users"] and str_user_id != ADMIN_ID:
+        db["notified_users"].append(str_user_id)
+        save_db(db)
+        
         if db.get("login_notice", True):
             try:
                 name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
@@ -225,7 +239,7 @@ def start_command(message):
             except Exception as e:
                 print(f"Login Notice Error: {e}")
 
-    if str(user_id) == ADMIN_ID:
+    if str_user_id == ADMIN_ID:
         stats_text = (
             "• لوحة التحكم 🤖\n\n"
             "—— إحصائيات اليوم ——\n"
@@ -565,5 +579,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تصحيح الخطأ وتشغيل البوت بنجاح")
+    print("تم تحديث نظام إشعارات الدخول بنجاح")
     bot.infinity_polling()
