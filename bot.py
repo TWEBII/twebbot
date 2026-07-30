@@ -4,6 +4,7 @@ import json
 import random
 import datetime
 import pytz
+import re
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_video
@@ -152,6 +153,16 @@ def send_random_sticker(chat_id):
     except Exception as e:
         pass
 
+def clean_ai_response(text):
+    # دالة لتنظيف أي كلمات أجنبية أو هلوسات قد تظهر بالخطأ
+    if not text:
+        return text
+    # حذف الكلمات الشائعة مثل tôi, Tôî, aquí وغيرها إن وجدت ككلمات معزولة
+    cleaned = re.sub(r'\b(tôi|Tôî|aquí)\b', '', text, flags=re.IGNORECASE)
+    # تنظيف المسافات الزائدة الناتجة عن الحذف
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
 def get_ai_reply(user_id, user_message):
     tz = pytz.timezone('Asia/Baghdad')
     iraq_time = datetime.datetime.now(tz).strftime('%Y-%m-%d %I:%M:%S %p')
@@ -159,13 +170,12 @@ def get_ai_reply(user_id, user_message):
     db = load_db()
     custom_instr = db.get("user_instructions", {}).get(str(user_id), "لا توجد شروط مخصصة.")
     
-    # تحسين النظام البرمجي لمنع خلط اللغات نهائياً
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB)، واسمك تويب (Tweb أو TWEB). "
         f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
         f"قواعد الإجابة الصارمة:\n"
         f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
-        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية (مثل الإسبانية، الإنجليزية، الفيتنامية، أو غيرها) داخل نص الإجابة العربية تحت أي ظرف.\n"
+        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.\n"
         f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
     )
     
@@ -176,8 +186,11 @@ def get_ai_reply(user_id, user_message):
                 {"role": "user", "content": user_message}
             ],
             model="llama-3.3-70b-versatile",
+            temperature=0.1, # تقليل العشوائية لمنع أي هلوسة لغوية
+        .max_tokens=1024
         )
-        return response.choices[0].message.content
+        raw_reply = response.choices[0].message.content
+        return clean_ai_response(raw_reply)
     except Exception as e:
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
 
@@ -555,5 +568,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت ومنع خلط اللغات نهائياً")
+    print("تم تفعيل فلتر التنظيف البرمجي ومنع الكلمات الأجنبية نهائياً")
     bot.infinity_polling()
