@@ -178,7 +178,7 @@ def get_ai_reply(message, user_message):
     dev_directive = ""
     if is_developer:
         dev_directive = (
-            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB)، "
+            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
             f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
             f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
             f"ولا تنكر أبداً أنه مطورك وصانعك."
@@ -563,7 +563,7 @@ def handle_user_messages(message):
     is_admin_user = (str(user_id) == ADMIN_ID or (message.from_user.username and message.from_user.username.lower() == "twebii"))
 
     if message.chat.type in ['group', 'supergroup']:
-        is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB"])
+        is_mentioned = any(name in text for name in ["تويب", "Tweb", "TWEB", "أحمد", "احمد"])
         is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot.get_me().id
         if not (is_mentioned or is_reply_to_bot or is_admin_user):
             return
