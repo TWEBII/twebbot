@@ -5,10 +5,11 @@ import asyncio
 
 app = Flask(__name__)
 
-# ضع توكن البوت الخاص بك هنا
+# توكن البوت الخاص بك
 BOT_TOKEN = "8898698558:AAFjuVht_Qq1DD_-1nRIB1YT6U-VWPnwtFM"
-# ضع رابط استضافتك هنا (مثلاً رابط مشروعك على Railway)
-BASE_URL = "https://your-app-name.up.railway.app"
+
+# رابط الاستضافة الخاص بك على Railway
+BASE_URL = "https://twebbot-production.up.railway.app"
 
 # =========================================================
 # قالب صفحة الويب للمشغل مع بصمة وتصميم TWEB
@@ -129,7 +130,6 @@ def watch_video(file_id):
 
 @app.route('/stream/<file_id>')
 def proxy_stream(file_id):
-    # جلب مسار الفيديو من تليجرام وبثه للمتصفح تدريجياً لضمان عدم التقطيع
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -167,10 +167,8 @@ def proxy_stream(file_id):
                 response.headers['Accept-Ranges'] = 'bytes'
                 return response
 
-    # تشغيل البث المباشر المقطع
     return loop.run_until_complete(send_stream())
 
 if __name__ == '__main__':
-    # تشغيل السيرفر على البورت المطلوب للاستضافة
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
