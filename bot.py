@@ -80,22 +80,22 @@ def save_db(db):
     except Exception as e:
         print(f"DB Save Error: {e}")
 
-# ================= دالة رفع الملفات الكبيرة لموقع خارجي (محدثة بمعالجة المهلة) =================
+# ================= دالة رفع الملفات الكبيرة عبر خدمة file.io الموثوقة =================
 def upload_to_external_host(file_path):
-    """دالة محسنة لرفع الملفات الكبيرة إلى Catbox مع مهلة زمنية مناسبة ومعالجة الاستجابة"""
-    url = "https://catbox.moe/user/api.php"
+    """دالة لرفع الملفات الكبيرة إلى خدمة file.io السريعة والمستقرة على السحابة"""
+    url = "https://file.io"
     try:
         with open(file_path, "rb") as f:
-            files = {"fileToUpload": f}
-            data = {"reqtype": "fileupload"}
-            # زيادة المهلة الزمنية إلى 180 ثانية لضمان اكتمال رفع الملفات الكبيرة مثل 88 ميجابايت
-            response = requests.post(url, data=data, files=files, timeout=180)
+            files = {"file": f}
+            response = requests.post(url, files=files, timeout=180)
             
-            print(f"Catbox Status Code: {response.status_code}")
-            print(f"Catbox Response Text: {response.text}")
+            print(f"File.io Status Code: {response.status_code}")
+            print(f"File.io Response Text: {response.text}")
             
-            if response.status_code == 200 and "https://" in response.text:
-                return response.text.strip()
+            if response.status_code == 200:
+                data_json = response.json()
+                if data_json.get("success"):
+                    return data_json.get("link")
     except Exception as e:
         print(f"External Upload Error: {e}")
     return None
@@ -718,5 +718,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث ملف bot.py بنجاح مع إضافة معالجة المهلة الزمنية لرفع الملفات الكبيرة!")
+    print("تم تحديث ملف bot.py بنجاح والتحويل إلى خدمة file.io لرفع الملفات الكبيرة!")
     bot.infinity_polling()
