@@ -130,6 +130,10 @@ def webhook_listener():
     else:
         return '', 403
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
 @app.route('/dl')
 def web_download():
     video_url = request.args.get('url')
@@ -142,8 +146,11 @@ def web_download():
             'format': 'best', 
             'quiet': True,
             'no_warnings': True,
-            'socket_timeout': 5,
-            'extractor_retries': 1,
+            'socket_timeout': 15,
+            'extractor_retries': 3,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
@@ -619,7 +626,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    # ضبط الـ Webhook تلقائياً مع تيليجرام
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     
