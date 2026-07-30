@@ -293,7 +293,7 @@ def handle_sticker_request(message):
     else:
         send_random_sticker(message.chat.id)
 
-# ================= معالج روابط السوشيال ميديا للتحميل =================
+# ================= معالج روابط السوشيال ميديا للتحميل (مع الحذف التلقائي) =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text:
@@ -306,24 +306,40 @@ def handle_social_links(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
     bot.send_chat_action(message.chat.id, 'upload_video')
-    sent_msg = bot.reply_to(message, "⏳ جاري استخراج المعالجة والتحميل من الرابط، يرجى الانتظار قليلاً...")
+    sent_msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو (حتى 5 دقائق بجودة عالية)، يرجى الانتظار قليلاً...")
     
-    file_path = download_video(message.text.strip())
+    # تمرير رسالة المستخدم بالكامل لتتولى دالة downloader استخراج الرابط النظيف
+    file_path = download_video(message.text)
     
     if file_path and os.path.exists(file_path):
         try:
             with open(file_path, 'rb') as f:
-                bot.send_video(message.chat.id, f, caption="✅ تم التحميل بنجاح عبر بوت TWEB")
+                bot.send_video(
+                    message.chat.id, 
+                    f, 
+                    caption="✅ تم التنزيل والإرسال بنجاح عبر بوت TWEB",
+                    parse_mode="Markdown"
+                )
             bot.delete_message(message.chat.id, sent_msg.message_id)
         except Exception as e:
-            bot.edit_message_text("⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً.", message.chat.id, sent_msg.message_id)
-        
-        try:
-            os.remove(file_path)
-        except:
-            pass
+            bot.edit_message_text(
+                chat_id=message.chat.id, 
+                message_id=sent_msg.message_id, 
+                text="⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً."
+            )
+        finally:
+            # 🧹 **الحذف التلقائي:** مسح ملف الفيديو من السيرفر فوراً بعد الانتهاء للحفاظ على مساحة الخادم
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
     else:
-        bot.edit_message_text("❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة.", message.chat.id, sent_msg.message_id)
+        bot.edit_message_text(
+            chat_id=message.chat.id, 
+            message_id=sent_msg.message_id, 
+            text="❌ عذراً، لم نتمكن من التحميل من هذا الرابط. تأكد من صحة الرابط وأن المنصة مدعومة."
+        )
 
 # ================= التفاعل مع الصور والمستندات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -405,8 +421,8 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو أو ملف:\n"
-            "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة!"
+            "لكي تقوم بتحميل أي فيديو (حتى مدة 5 دقائق):\n"
+            "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
@@ -618,5 +634,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت وربطه بملف الألعاب الخارجي (games.py) بنجاح")
+    print("تم تحديث البوت وربطه بملف الألعاب الخارجي وملف التحميل مع الحذف التلقائي بنجاح!")
     bot.infinity_polling()
