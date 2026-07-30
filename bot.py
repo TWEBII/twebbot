@@ -174,7 +174,7 @@ def send_random_sticker(chat_id):
 def clean_ai_response(text):
     if not text:
         return text
-    cleaned = re.sub(r'(tôi|Tôî|aquí)', '', text, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\b(tôi|Tôî|aquí)\b', '', text, flags=re.IGNORECASE)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
@@ -193,8 +193,7 @@ def get_ai_reply(message, user_message):
     dev_directive = ""
     if is_developer:
         dev_directive = (
-            f"
-[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
+            f"[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
             f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
             f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
             f"ولا تنكر أبداً أنه مطورك وصانعك."
@@ -202,16 +201,11 @@ def get_ai_reply(message, user_message):
     
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB), واسمك تويب (Tweb أو TWEB). "
-        f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.
-"
-        f"{dev_directive}
-"
-        f"قواعد الإجابة الصارمة:
-"
-        f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.
-"
-        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.
-"
+        f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
+        f"{dev_directive}\n"
+        f"قواعد الإجابة الصارمة:\n"
+        f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
+        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.\n"
         f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
     )
     
@@ -264,12 +258,9 @@ def start_command(message):
                 username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
                 
                 notice_msg = (
-                    f"🔔 دخل شخص جديد للبوت!
-"
-                    f"👤 الحساب: {user_link}
-"
-                    f"🔗 اليوزر: {username}
-"
+                    f"🔔 دخل شخص جديد للبوت!\n"
+                    f"👤 الحساب: {user_link}\n"
+                    f"🔗 اليوزر: {username}\n"
                     f"🆔 الأيدي: `{user_id}`"
                 )
                 bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
@@ -278,19 +269,12 @@ def start_command(message):
 
     if str_user_id == ADMIN_ID or message.from_user.username == "TWEBii":
         stats_text = (
-            "• لوحة التحكم الإدارية 🤖
-
-"
-            "—— إحصائيات النظام ——
-"
-            f"👥 إجمالي المستخدمين: {len(db['users'])}
-"
-            f"🚫 المحظورون: {len(db.get('banned_users', []))}
-"
-            "📈 حالة البوت: نشط ومستقر
-"
-            "⚡️ متوسط الاستجابة: فوري
-"
+            "• لوحة التحكم الإدارية 🤖\n\n"
+            "—— إحصائيات النظام ——\n"
+            f"👥 إجمالي المستخدمين: {len(db['users'])}\n"
+            f"🚫 المحظورون: {len(db.get('banned_users', []))}\n"
+            "📈 حالة البوت: نشط ومستقر\n"
+            "⚡️ متوسط الاستجابة: فوري\n"
         )
         bot.send_message(message.chat.id, stats_text, reply_markup=get_admin_keyboard())
     else:
@@ -315,8 +299,7 @@ def handle_sticker_request(message):
     if any(w in text for w in ["رابط", "روابط"]):
         set_name = random.choice(STICKER_SETS)
         link = f"https://t.me/addstickers/{set_name}"
-        bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:
-{link}")
+        bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:\n{link}")
     else:
         send_random_sticker(message.chat.id)
 
@@ -374,20 +357,12 @@ def handle_files(message):
     if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
 
     text = (
-        "📸 **أداة الترجمة الذكية للمستندات والصور**
-
-"
+        "📸 **أداة الترجمة الذكية للمستندات والصور**\n\n"
         "لقد قمت بإرسال ملف أو صورة! للترجمة الاحترافية والدقيقة، "
-        "نوصي باستخدام أداة ترجمة جوجل المخصصة، والتي تتميز بـ:
-
-"
-        "✨ **السرعة والدقة** في ترجمة النصوص داخل الصور.
-"
-        "📄 **دعم ملفات** الـ PDF والـ Word وغيرها.
-"
-        "🔒 **الحفاظ على تنسيق** الملف الأصلي.
-
-"
+        "نوصي باستخدام أداة ترجمة جوجل المخصصة، والتي تتميز بـ:\n\n"
+        "✨ **السرعة والدقة** في ترجمة النصوص داخل الصور.\n"
+        "📄 **دعم ملفات** الـ PDF والـ Word وغيرها.\n"
+        "🔒 **الحفاظ على تنسيق** الملف الأصلي.\n\n"
         "🔗 [اضغط هنا للدخول لموقع الترجمة وبدء العمل مباشرة](https://translate.google.com.sa/?sl=auto&tl=ar&op=docs)"
     )
     bot.reply_to(message, text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -405,7 +380,7 @@ def handle_sticker(message):
     ai_response = get_ai_reply(message, prompt)
     bot.reply_to(message, ai_response)
 
-# ================= معالجة تفاعلات الأزرار الشفافة (مع معالجة استجابة الأزرار) =================
+# ================= معالجة تفاعلات الأزرار الشفافة =================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
@@ -418,14 +393,9 @@ def callback_handler(call):
     elif call.data == "user_menu_sub":
         bot.answer_callback_query(call.id)
         sub_text = (
-            "🔐 **قسم دعم وتطوير البوت ماليًا**
-
-"
-            "يمكنك المساهمة في استمرار وتطوير خدماتنا عبر قنوات الدعم التالية:
-
-"
-            "▪️ **معرف بايننس (Binance ID):** `907262941`
-"
+            "🔐 **قسم دعم وتطوير البوت ماليًا**\n\n"
+            "يمكنك المساهمة في استمرار وتطوير خدماتنا عبر قنوات الدعم التالية:\n\n"
+            "▪️ **معرف بايننس (Binance ID):** `907262941`\n"
             "▪️ **رقم آسيا سيل (AsiaCell):** `07704701242`"
         )
         edit_user_interface(call, sub_text, get_user_back_button())
@@ -433,14 +403,9 @@ def callback_handler(call):
     elif call.data == "user_menu_contact":
         bot.answer_callback_query(call.id)
         contact_text = (
-            "📣 **معلومات التواصل الرسمية والمباشرة مع المطور:**
-
-"
-            "▪️ **الحساب الشخصي للمطور:** @TWEBii
-"
-            "▪️ **بوت التواصل المباشر:** @TWEBI_BOT
-
-"
+            "📣 **معلومات التواصل الرسمية والمباشرة مع المطور:**\n\n"
+            "▪️ **الحساب الشخصي للمطور:** @TWEBii\n"
+            "▪️ **بوت التواصل المباشر:** @TWEBI_BOT\n\n"
             "يسعدنا استقبال استفساراتكم في أي وقت."
         )
         edit_user_interface(call, contact_text, get_user_back_button())
@@ -452,26 +417,19 @@ def callback_handler(call):
             bot.send_message(user_id, "⚠️ عذراً عزيزي، لقد قمت بإرسال رسالة دعم اليوم بالفعل. يُسمح برسالة واحدة يومياً.")
             return
             
-        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠
-
-يرجى كتابة وإرسال تفاصيل الخطأ أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيهها لمالك البوت (بلاغ واحد يومياً).")
+        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠\n\nيرجى كتابة وإرسال تفاصيل الخطأ أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيهها لمالك البوت (بلاغ واحد يومياً).")
         bot.register_next_step_handler(msg, process_user_support_message, today)
         
     elif call.data == "user_menu_guide":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓
-
-أرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار)، وسيقوم بتطبيقها فوراً.")
+        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار)، وسيقوم بتطبيقها فوراً.")
         bot.register_next_step_handler(msg, process_user_instructions)
 
     elif call.data == "user_menu_download_guide":
         bot.answer_callback_query(call.id)
         dl_text = (
-            "📥 **قسم التحميل من السوشيال ميديا**
-
-"
-            "لكي تقوم بتحميل أي فيديو (حتى مدة 5 دقائق):
-"
+            "📥 **قسم التحميل من السوشيال ميديا**\n\n"
+            "لكي تقوم بتحميل أي فيديو (حتى مدة 5 دقائق):\n"
             "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
@@ -480,19 +438,12 @@ def callback_handler(call):
         if call.data == "back_main":
             bot.answer_callback_query(call.id)
             stats_text = (
-                "• لوحة التحكم الإدارية 🤖
-
-"
-                "—— إحصائيات النظام ——
-"
-                f"👥 إجمالي المستخدمين: {len(db['users'])}
-"
-                f"🚫 المحظورون: {len(db.get('banned_users', []))}
-"
-                "📈 حالة البوت: نشط ومستقر
-"
-                "⚡️ متوسط الاستجابة: فوري
-"
+                "• لوحة التحكم الإدارية 🤖\n\n"
+                "—— إحصائيات النظام ——\n"
+                f"👥 إجمالي المستخدمين: {len(db['users'])}\n"
+                f"🚫 المحظورون: {len(db.get('banned_users', []))}\n"
+                "📈 حالة البوت: نشط ومستقر\n"
+                "⚡️ متوسط الاستجابة: فوري\n"
             )
             bot.edit_message_text(stats_text, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
 
@@ -518,9 +469,7 @@ def callback_handler(call):
 
         elif call.data == "add_start_btn":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(user_id, "أرسل اسم الزر والرابط هكذا:
-
-`اسم الزر - الرابط`", parse_mode="Markdown")
+            msg = bot.send_message(user_id, "أرسل اسم الزر والرابط هكذا:\n\n`اسم الزر - الرابط`", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_add_start_button)
 
         elif call.data == "edit_all_inline":
@@ -529,18 +478,14 @@ def callback_handler(call):
         elif call.data == "menu_subscribe":
             bot.answer_callback_query(call.id)
             support_view = (
-                "🔐 **معلومات الدعم الفعالة حالياً:**
-
-"
-                f"▪️ معرف بايننس: `907262941`
-"
+                "🔐 **معلومات الدعم الفعالة حالياً:**\n\n"
+                f"▪️ معرف بايننس: `907262941`\n"
                 f"▪️ رقم آسيا سيل: `07704701242`"
             )
             bot.edit_message_text(support_view, chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard(), parse_mode="Markdown")
 
         elif call.data == "users_count":
-            bot.answer_callback_query(call.id, f"👥 عدد المستخدمين الكلي: {len(db['users'])}
-🚫 المحظورون: {len(db.get('banned_users', []))}", show_alert=True)
+            bot.answer_callback_query(call.id, f"👥 عدد المستخدمين الكلي: {len(db['users'])}\n🚫 المحظورون: {len(db.get('banned_users', []))}", show_alert=True)
 
         elif call.data == "menu_finance":
             bot.answer_callback_query(call.id, "💰 القسم المالي مرتبط ببيانات الدعم المباشرة.", show_alert=True)
@@ -609,8 +554,7 @@ def process_add_start_button(message):
         save_db(db)
         bot.reply_to(message, "✅ تم إضافة الزر الشفاف بنجاح.")
     except:
-        bot.reply_to(message, "⚠️ صيغة الإدخال خاطئة! يرجى الإرسال هكذا:
-`اسم الزر - الرابط`", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ صيغة الإدخال خاطئة! يرجى الإرسال هكذا:\n`اسم الزر - الرابط`", parse_mode="Markdown")
 
 def process_edit_start_text(message):
     if str(message.from_user.id) != ADMIN_ID: return
@@ -631,10 +575,7 @@ def process_broadcast(message):
             success += 1
         except:
             failed += 1
-    bot.edit_message_text(chat_id=message.chat.id, message_id=sent_msg.message_id, text=f"📢 تمت الإذاعة بنجاح!
-
-✅ تم الإرسال إلى: {success} مستخدم
-❌ فشل الإرسال إلى: {failed} مستخدم")
+    bot.edit_message_text(chat_id=message.chat.id, message_id=sent_msg.message_id, text=f"📢 تمت الإذاعة بنجاح!\n\n✅ تم الإرسال إلى: {success} مستخدم\n❌ فشل الإرسال إلى: {failed} مستخدم")
 
 def process_ban_action(message, mode_ban=True):
     if str(message.from_user.id) != ADMIN_ID: return
@@ -699,16 +640,10 @@ def process_user_support_message(message, today):
     
     username = f"@{message.from_user.username}" if message.from_user.username else "بدون يوزر"
     report_text = (
-        f"📩 **بلاغ دعم فني جديد**
-
-"
-        f"👤 أيدي: `{user_id}`
-"
-        f"🔗 يوزر: {username}
-
-"
-        f"💬 النص:
-{message.text}"
+        f"📩 **بلاغ دعم فني جديد**\n\n"
+        f"👤 أيدي: `{user_id}`\n"
+        f"🔗 يوزر: {username}\n\n"
+        f"💬 النص:\n{message.text}"
     )
     try:
         bot.send_message(ADMIN_ID, report_text)
