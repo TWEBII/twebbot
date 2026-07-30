@@ -17,9 +17,9 @@ GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
 
-# ضع رابط موقعك على Railway هنا (بدون شُرطة مائلة في النهاية)
+# رابط موقعك على Railway
 WEBHOOK_HOST = "https://twebbot-production.up.railway.app"
-WEBHOOK_URL = f"{WEBHOOK_HOST}/{TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}/webhook"
 
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 games.setup_game_handlers(bot)
@@ -120,7 +120,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-@app.route(f'/{TOKEN}', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook_listener():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
@@ -152,7 +152,7 @@ def web_download():
         print(f"Extraction Error: {e}")
         direct_link = None
         
-    return render_template_string(HTML_TEMPLATE, direct_url=direct_link)
+    return render_template_string(HTML_TEMPLATE, direct_link=direct_link)
 
 # ================= إدارة قاعدة البيانات =================
 def load_db():
@@ -619,7 +619,7 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    # ضبط الـ Webhook تلقائياً مع تيليجرام عند بدء التشغيل
+    # ضبط الـ Webhook تلقائياً مع تيليجرام
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     
