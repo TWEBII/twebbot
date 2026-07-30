@@ -10,7 +10,6 @@ import time
 from flask import Flask, render_template_string, request, redirect
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from downloader import download_video
 import yt_dlp
 import games  # ملف الألعاب الخارجي
 
@@ -340,7 +339,7 @@ def start_command(message):
         else:
             bot.send_message(message.chat.id, db.get("start_text"), reply_markup=build_user_keyboard())
 
-# ================= معالج روابط السوشيال ميديا (موقع TWEB الخاص بك) =================
+# ================= معالج روابط السوشيال ميديا =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text: return
@@ -621,7 +620,8 @@ if __name__ == "__main__":
     
     while True:
         try:
-            bot.infinity_polling(restart_on_change=True, timeout=20, long_polling_timeout=20)
+            # تم إزالة restart_on_change لمنع الخطأ واستعادة استجابة البوت
+            bot.infinity_polling(timeout=20, long_polling_timeout=20)
         except Exception as e:
             print(f"Polling error: {e}")
             time.sleep(5)
