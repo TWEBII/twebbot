@@ -1,4 +1,4 @@
-Import os
+import os
 import yt_dlp
 
 def download_video(url):
