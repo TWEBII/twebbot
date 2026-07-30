@@ -337,8 +337,9 @@ def handle_social_links(message):
     )
     markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
     
+    # تم إزالة parse_mode="Markdown" لمنع أخطاء الروابط الطويلة وتنسيقات اليوتيوب
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
-                          reply_markup=markup, parse_mode="Markdown")
+                          reply_markup=markup)
 
 # ================= معالج أزرار التحميل (المُحدث والآمن) =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
@@ -361,7 +362,6 @@ def handle_download_callback(call):
         parse_mode="Markdown"
     )
     
-    # دالة فرعية للعداد الفعلي يتم تحديثها كل 3 ثوانٍ لمنع حظر تيليجرام
     def progress_updater(percent):
         current_time = time.time()
         msg_id = progress_msg.message_id
@@ -378,14 +378,9 @@ def handle_download_callback(call):
                 pass
 
     media_type = 'video' if action == "dl_vid" else 'audio'
-    
-    # استدعاء دالة التحميل مع تمرير العداد الفعلي
     file_path = download_media(url, media_type=media_type, progress_callback=progress_updater)
-    
-    # تنظيف الذاكرة المؤقتة للعداد
     last_edit_time.pop(progress_msg.message_id, None)
 
-    # معالجة النتائج وإرسال الملف
     if file_path == "TOO_LARGE":
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
@@ -739,6 +734,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت بالكامل، وربطه بنظام العداد الفعلي وحل مشاكل الروابط بنجاح!")
+    print("تم تحديث البوت بالكامل، وحل مشكلة الـ Markdown وإرسال الروابط بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
