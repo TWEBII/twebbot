@@ -1,15 +1,33 @@
 import yt_dlp
 import os
+import urllib.request
 
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
+
+def resolve_url(url):
+    """
+    توسيع الروابط المختصرة مثل vm.tiktok.com للحصول على الرابط المباشر الحقيقي
+    """
+    if 'vm.tiktok.com' in url or 'vt.tiktok.com' in url:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return response.url
+        except Exception as e:
+            print(f"Error resolving URL: {e}")
+    return url
 
 def get_video_info(url):
     """
     استخراج تفاصيل الفيديو (محفوظة وثابتة تماماً كما طلبت)
     """
-    if 'youtube.com' in url or 'youtu.be' in url:
-        return {'title': 'YouTube Video', 'duration': 0, 'id': url.split('/')[-1].split('?')[0]}
+    resolved_url = resolve_url(url)
+    if 'youtube.com' in resolved_url or 'youtu.be' in resolved_url:
+        return {'title': 'YouTube Video', 'duration': 0, 'id': resolved_url.split('/')[-1].split('?')[0]}
 
     ydl_opts = {
         'quiet': True,
@@ -20,7 +38,7 @@ def get_video_info(url):
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(resolved_url, download=False)
             return info
     except Exception as e:
         print(f"Error fetching info: {e}")
@@ -28,6 +46,9 @@ def get_video_info(url):
 
 def download_media(url, media_type='video', progress_callback=None):
     max_size_bytes = 45 * 1024 * 1024  # 45 ميجابايت
+
+    # توسيع الرابط المختصر أولاً لتجنب فشل تيك توك
+    real_url = resolve_url(url)
 
     def hook(d):
         if d['status'] == 'downloading' and progress_callback:
@@ -37,8 +58,7 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    # التحقق مما إذا كان الرابط يتبع لتيك توك لتطبيق إعدادات مخصصة للصوت
-    is_tiktok = 'tiktok.com' in url
+    is_tiktok = 'tiktok.com' in real_url
 
     common_opts = {
         'geo_bypass': True,
@@ -61,7 +81,7 @@ def download_media(url, media_type='video', progress_callback=None):
             }
         })
     else:
-        # إعدادات خاصة لتك توك لتجاوز حماية الروابط الصوتية
+        # إعدادات قوية ومستقرة لتيك توك بالرابط المباشر
         common_opts.update({
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -88,7 +108,7 @@ def download_media(url, media_type='video', progress_callback=None):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
             
             if media_type == 'audio':
