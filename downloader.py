@@ -22,9 +22,6 @@ def resolve_url(url):
     return url
 
 def get_video_info(url):
-    """
-    استخراج مبسط جداً يتخطى الفحص المسبق لتيك توك ويوتيوب لمنع أي توقف
-    """
     resolved_url = resolve_url(url)
     if 'youtube.com' in resolved_url or 'youtu.be' in resolved_url:
         return {'title': 'YouTube Video', 'duration': 0, 'id': resolved_url.split('/')[-1].split('?')[0]}
@@ -90,19 +87,27 @@ def download_media(url, media_type='video', progress_callback=None):
             }
         })
 
-    if media_type == 'video':
+    # إذا كان تيك توك، نقوم دائماً بتحميل صيغة الفيديو المضمونة أولاً، وسواء طلب المستخدم فيديو أو صوت سنقوم بتلبية الطلب بدقة
+    if is_tiktok:
         ydl_opts = {
             **common_opts,
-            'format': 'best[filesize<=45M]/bestvideo+bestaudio/best',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'merge_output_format': 'mp4',
-        }
-    else: 
-        ydl_opts = {
-            **common_opts,
-            'format': 'best/bestaudio/best',
+            'format': 'best[filesize<=45M]/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
         }
+    else:
+        if media_type == 'video':
+            ydl_opts = {
+                **common_opts,
+                'format': 'best[filesize<=45M]/bestvideo+bestaudio/best',
+                'outtmpl': 'downloads/%(id)s.%(ext)s',
+                'merge_output_format': 'mp4',
+            }
+        else: 
+            ydl_opts = {
+                **common_opts,
+                'format': 'bestaudio/best',
+                'outtmpl': 'downloads/%(id)s.%(ext)s',
+            }
 
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
@@ -112,9 +117,10 @@ def download_media(url, media_type='video', progress_callback=None):
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
             
+            # معالجة ملف الصوت لتيك توك أو يوتيوب
             if media_type == 'audio':
                 base_name = os.path.splitext(filename)[0]
-                for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus']:
+                for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus', '.mp4']:
                     candidate = base_name + ext
                     if os.path.exists(candidate):
                         return candidate
