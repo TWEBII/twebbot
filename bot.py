@@ -6,6 +6,7 @@ import datetime
 import pytz
 import re
 import threading
+import time
 from flask import Flask, render_template_string, request, redirect
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
@@ -613,4 +614,10 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
     print("تم تفعيل بوت تيليجرام وموقع TWEB المدمج بنجاح!")
-    bot.infinity_polling()
+    
+    while True:
+        try:
+            bot.infinity_polling(restart_on_change=True, timeout=20, long_polling_timeout=20)
+        except Exception as e:
+            print(f"Polling error: {e}")
+            time.sleep(5)
