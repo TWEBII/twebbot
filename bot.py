@@ -210,12 +210,10 @@ def start_command(message):
 
     send_random_sticker(user_id)
 
-    # تحديث قائمة المستخدمين الإجمالية إذا لم تكن موجودة
     if user_id not in db["users"] and str_user_id != ADMIN_ID:
         db["users"].append(user_id)
         save_db(db)
 
-    # إرسال إشعار الدخول مرة واحدة فقط للمستخدم الجديد تماماً
     if "notified_users" not in db:
         db["notified_users"] = []
 
@@ -254,6 +252,27 @@ def start_command(message):
                 bot.send_photo(user_id, photo, caption=db.get("start_text"), reply_markup=build_user_keyboard())
         else:
             bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
+
+# ================= معالج طلبات الملصقات والروابط =================
+@bot.message_handler(func=lambda m: m.text and any(word in m.text for word in ["ملصق", "ملصقات", "ستيكر", "ستيكرات"]))
+def handle_sticker_request(message):
+    db = load_db()
+    user_id = message.chat.id
+    
+    if str(user_id) in db.get("banned_users", []):
+        return
+    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID:
+        return
+        
+    text = message.text
+    # إذا طلب المستخدم رابط حزمة الملصقات
+    if any(w in text for w in ["رابط", "روابط"]):
+        set_name = random.choice(STICKER_SETS)
+        link = f"https://t.me/addstickers/{set_name}"
+        bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:\n{link}")
+    else:
+        # إذا طلب ملصقاً عادياً
+        send_random_sticker(user_id)
 
 # ================= معالج روابط السوشيال ميديا للتحميل =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
@@ -579,5 +598,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث نظام إشعارات الدخول بنجاح")
+    print("تم تحديث البوت لإرسال الروابط والملصقات بنجاح")
     bot.infinity_polling()
