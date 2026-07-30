@@ -5,9 +5,7 @@ import random
 import datetime
 import pytz
 import re
-import threading
-import time
-from flask import Flask, render_template_string, request, redirect
+from flask import Flask, render_template_string, request
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import yt_dlp
@@ -19,7 +17,11 @@ GROQ_API_KEY = "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"
 ADMIN_ID = "8411608232"
 VIDEO_PATH = "video.mp4" 
 
-bot = telebot.TeleBot(TOKEN)
+# ضع رابط موقعك على Railway هنا (بدون شُرطة مائلة في النهاية)
+WEBHOOK_HOST = "https://twebbot-production.up.railway.app"
+WEBHOOK_URL = f"{WEBHOOK_HOST}/{TOKEN}"
+
+bot = telebot.TeleBot(TOKEN, parse_mode=None)
 games.setup_game_handlers(bot)
 groq_client = Groq(api_key=GROQ_API_KEY)
 DB_FILE = "database.json"
@@ -36,7 +38,7 @@ try:
 except Exception as e:
     print(f"Error setting commands: {e}")
 
-# ================= إعداد موقع الويب الخاص بك (Flask Web App) =================
+# ================= إعداد موقع الويب وخادم الـ Webhook =================
 app = Flask(__name__)
 
 HTML_TEMPLATE = """
@@ -118,6 +120,16 @@ HTML_TEMPLATE = """
 </html>
 """
 
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook_listener():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return '', 403
+
 @app.route('/dl')
 def web_download():
     video_url = request.args.get('url')
@@ -141,10 +153,6 @@ def web_download():
         direct_link = None
         
     return render_template_string(HTML_TEMPLATE, direct_url=direct_link)
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
 
 # ================= إدارة قاعدة البيانات =================
 def load_db():
@@ -274,7 +282,6 @@ def get_ai_reply(message, user_message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
-    db = load_db()
     
     dev_directive = ""
     if is_developer:
@@ -350,8 +357,7 @@ def handle_social_links(message):
     if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
     
     url = message.text.strip()
-    railway_domain = "https://twebbot-production.up.railway.app"
-    web_page_url = f"{railway_domain}/dl?url={url}"
+    web_page_url = f"{WEBHOOK_HOST}/dl?url={url}"
     
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🌐 افتح موقع TWEB وحمل الفيديو فوراً", url=web_page_url))
@@ -488,12 +494,12 @@ def callback_handler(call):
             if "ban_notice" in db: del db["ban_notice"]
             else: db["ban_notice"] = True
             save_db(db)
-            bot.answer_callback_query(call.id, "✅ تم تغيير إعداد إشعار الحظر.", show_alert=True)
+            bot.answer_callback_query(call.id, "✅ تم تغيير إشعار الحظر.", show_alert=True)
             bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
         elif call.data == "toggle_login_notice":
             db["login_notice"] = not db.get("login_notice", True)
             save_db(db)
-            bot.answer_callback_query(call.id, "✅ تم تغيير إعداد إشعار الدخول.", show_alert=True)
+            bot.answer_callback_query(call.id, "✅ تم تغيير إشعار الدخول.", show_alert=True)
             bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=get_admin_keyboard())
         elif call.data == "menu_guide":
             bot.answer_callback_query(call.id, "❓ هذا القسم يدار بذكاء استنادا لمدخلات العملاء.", show_alert=True)
@@ -613,14 +619,10 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    print("تم تفعيل بوت تيليجرام وموقع TWEB المدمج بنجاح!")
+    # ضبط الـ Webhook تلقائياً مع تيليجرام عند بدء التشغيل
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
     
-    while True:
-        try:
-            bot.infinity_polling(none_stop=True, interval=0, timeout=20, long_polling_timeout=20)
-        except Exception as e:
-            print(f"Polling error: {e}")
-            time.sleep(5)
+    port = int(os.environ.get("PORT", 5000))
+    print("تم تفعيل البوت بنظام Webhook وموقع TWEB المدمج بنجاح!")
+    app.run(host='0.0.0.0', port=port)
