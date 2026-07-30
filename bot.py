@@ -581,28 +581,3 @@ def process_user_instructions(message):
 if __name__ == "__main__":
     print("تم تحديث نظام إشعارات الدخول بنجاح")
     bot.infinity_polling()
-@bot.message_handler(content_types=['video', 'document'])
-def handle_video(message):
-    # التحقق من أن الملف فيديو أو مستند فيديو
-    video = message.video or message.document
-    if not video:
-        return
-        
-    file_id = video.file_id
-    file_name = getattr(video, 'file_name', 'TWEB_Video.mp4')
-    
-    # رابط صفحة المشاهدة المباشرة المرتبط بسيرفرك المنفصل
-    watch_url = f"https://twebbot-production.up.railway.app/watch/{file_id}?name={file_name}"
-    
-    # إنشاء الأزرار الشفافة
-    markup = types.InlineKeyboardMarkup()
-    btn_stream = types.InlineKeyboardButton(text="🎬 مشاهدة مباشرة بدون تحميل (TWEB)", url=watch_url)
-    markup.add(btn_stream)
-    
-    bot.reply_to(
-        message,
-        "✨ **تم معالجة الفيديو بنجاح!**\n\n"
-        "اضغط على الزر أدناه لمشاهدة الفيديو فوراً وبدون تقطيع عبر مشغل TWEB 👇",
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
