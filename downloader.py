@@ -7,7 +7,7 @@ if not os.path.exists('downloads'):
 
 def get_video_info(url):
     """
-    دالة لاستخراج تفاصيل المقطع قبل التحميل لعرضها للمستخدم (مع دعم كامل لتجاوز حظر يوتيوب)
+    دالة لاستخراج تفاصيل المقطع قبل التحميل لعرضها للمستخدم بدون تعليق البوت
     """
     ydl_opts = {
         'quiet': True,
@@ -15,12 +15,11 @@ def get_video_info(url):
         'geo_bypass': True,
         'nocheckcertificate': True,
         'extract_flat': False,
-        'socket_timeout': 30,
+        'socket_timeout': 15,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
+            'Accept-Language': 'en-US,en;q=0.5',
         }
     }
     try:
@@ -33,11 +32,10 @@ def get_video_info(url):
 
 def download_media(url, media_type='video', progress_callback=None):
     """
-    دالة لتحميل الفيديو أو الصوت بشكل آمن، مع ربط العداد الفعلي (Progress Hook)
+    دالة لتحميل الفيديو أو الصوت بشكل آمن ومستقر 100%
     """
     max_size_bytes = 45 * 1024 * 1024  # 45 ميجابايت
 
-    # دالة داخلية لالتقاط النسبة المئوية من yt_dlp وإرسالها للبوت
     def hook(d):
         if d['status'] == 'downloading' and progress_callback:
             total = d.get('total_bytes') or d.get('total_bytes_estimate', 1)
@@ -46,33 +44,32 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    # إعدادات عامة لتجاوز حظر يوتيوب ومواقع السوشيال ميديا
     common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
         'max_filesize': max_size_bytes,
-        'socket_timeout': 30,
+        'socket_timeout': 20,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
+            'Accept-Language': 'en-US,en;q=0.5',
         }
     }
 
     if media_type == 'video':
         ydl_opts = {
             **common_opts,
-            'format': 'bestvideo[ext=mp4][filesize<=45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<=45M]/best[filesize<=45M]/best',
+            'format': 'best[filesize<=45M]/bestvideo+bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'merge_output_format': 'mp4',
         }
     else: 
+        # لتجنب مشاكل استخراج الصوت المباشر في بعض المنصات، نقوم بتحميل أفضل صيغة متاحة ثم تحويلها بسلام
         ydl_opts = {
             **common_opts,
-            'format': 'bestaudio/best',
+            'format': 'best/bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -81,7 +78,6 @@ def download_media(url, media_type='video', progress_callback=None):
             }],
         }
 
-    # إضافة العداد إذا تم تمريره
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
 
@@ -90,18 +86,23 @@ def download_media(url, media_type='video', progress_callback=None):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # تصحيح الامتداد النهائي بدقة عالية
+            # التأكد من صحة وامتداد الملف الناتج نهائياً
             if media_type == 'audio':
                 base_name = os.path.splitext(filename)[0]
-                filename = base_name + '.mp3'
-            elif media_type == 'video':
+                mp3_file = base_name + '.mp3'
+                if os.path.exists(mp3_file):
+                    return mp3_file
+                # لو الامتداد الأصلي تغير بعد المعالجة
+                for f in os.listdir('downloads'):
+                    if f.startswith(info.get('id', '')) and f.endswith('.mp3'):
+                        return os.path.join('downloads', f)
+                return filename.rsplit('.', 1)[0] + '.mp3'
+            else:
                 base_name = os.path.splitext(filename)[0]
-                if not os.path.exists(filename) and os.path.exists(base_name + '.mp4'):
-                    filename = base_name + '.mp4'
-                elif not filename.endswith('.mp4'):
-                    filename = base_name + '.mp4'
-                
-            return filename
+                mp4_file = base_name + '.mp4'
+                if os.path.exists(mp4_file):
+                    return mp4_file
+                return filename
             
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e).lower()
