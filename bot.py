@@ -154,12 +154,9 @@ def send_random_sticker(chat_id):
         pass
 
 def clean_ai_response(text):
-    # دالة لتنظيف أي كلمات أجنبية أو هلوسات قد تظهر بالخطأ
     if not text:
         return text
-    # حذف الكلمات الشائعة مثل tôi, Tôî, aquí وغيرها إن وجدت ككلمات معزولة
     cleaned = re.sub(r'\b(tôi|Tôî|aquí)\b', '', text, flags=re.IGNORECASE)
-    # تنظيف المسافات الزائدة الناتجة عن الحذف
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
@@ -186,8 +183,8 @@ def get_ai_reply(user_id, user_message):
                 {"role": "user", "content": user_message}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.1, # تقليل العشوائية لمنع أي هلوسة لغوية
-        .max_tokens=1024
+            temperature=0.1,
+            max_tokens=1024
         )
         raw_reply = response.choices[0].message.content
         return clean_ai_response(raw_reply)
@@ -568,5 +565,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تفعيل فلتر التنظيف البرمجي ومنع الكلمات الأجنبية نهائياً")
+    print("تم تصحيح الخطأ وتشغيل البوت بنجاح")
     bot.infinity_polling()
