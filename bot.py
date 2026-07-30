@@ -110,7 +110,7 @@ HTML_TEMPLATE = """
         {% if direct_url %}
             <a href="{{ direct_url }}" class="btn" download>📥 اضغط هنا للتحميل المباشر</a>
         {% else %}
-            <p style="color: #ef4444;">عذراً، لم نتمكن من استخراج رابط الفيديو. تأكد من صحة الرابط أو حاول مرة أخرى.</p>
+            <p style="color: #ef4444;">عذراً، انتهت مهلة الاتصال أو أن الرابط غير مدعوم حالياً. حاول مجدداً.</p>
         {% endif %}
         <div class="footer">TWEB Bot Production © 2026</div>
     </div>
@@ -130,13 +130,15 @@ def web_download():
             'format': 'best', 
             'quiet': True,
             'no_warnings': True,
-            'socket_timeout': 10,
+            'socket_timeout': 5,
+            'extractor_retries': 1,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             direct_link = info.get('url')
     except Exception as e:
         print(f"Extraction Error: {e}")
+        direct_link = None
         
     return render_template_string(HTML_TEMPLATE, direct_url=direct_link)
 
