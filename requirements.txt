@@ -2,3 +2,4 @@ pyTelegramBotAPI
 groq
 pytz
 yt-dlp
+schedule
