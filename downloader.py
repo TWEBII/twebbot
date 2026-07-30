@@ -1,32 +1,60 @@
 import os
 import yt_dlp
 
-def download_video(query_or_url, output_filename="video.mp4"):
-    if os.path.exists(output_filename):
-        try:
-            os.remove(output_filename)
-        except:
-            pass
-
-    target_url = query_or_url
-    if not (query_or_url.startswith('http://') or query_or_url.startswith('https://')):
-        target_url = f"ytsearch:{query_or_url}"
-
+def get_video_info(url):
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
-        'outtmpl': output_filename,
-        'quiet': False,          # اظهار تفاصيل التحميل في السيرفر
-        'no_warnings': False,
-        'socket_timeout': 30,
+        'quiet': True, 
+        'no_warnings': True,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
     }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return {
+                'title': info.get('title', 'فيديو بدون عنوان'),
+                'duration': info.get('duration', 0),
+                'views': info.get('view_count', 0)
+            }
+    except Exception as e:
+        print(f"Info Error: {e}")
+    return None
+
+def download_video(url, output_filename="video.mp4", mode="video"):
+    if mode == "audio":
+        out_file = output_filename.replace('.mp4', '.m4a') # استخدام صيغة m4a الأخف والأسرع لتيليجرام
+        if os.path.exists(out_file):
+            try: os.remove(out_file)
+            except: pass
+            
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': out_file,
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+        }
+    else:
+        out_file = output_filename
+        if os.path.exists(out_file):
+            try: os.remove(out_file)
+            except: pass
+            
+        ydl_opts = {
+            'format': 'best[height<=360][ext=mp4]/best[height<=360]/best',
+            'outtmpl': out_file,
+            'quiet': True,
+            'no_warnings': True,
+            'geo_bypass': True,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+        }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([target_url])
+            ydl.download([url])
         
-        if os.path.exists(output_filename):
-            return output_filename
+        if os.path.exists(out_file):
+            return out_file
     except Exception as e:
-        print(f"❌ تفاصيل خطأ yt-dlp البحتة: {str(e)}")
+        print(f"❌ خطأ التحميل: {e}")
 
     return None
