@@ -111,7 +111,7 @@ HTML_TEMPLATE = """
         {% if direct_url %}
             <a href="{{ direct_url }}" class="btn" download>📥 اضغط هنا للتحميل المباشر</a>
         {% else %}
-            <p style="color: #ef4444;">عذراً، لم نتمكن من استخراج رابط الفيديو. تأكد من صحة الرابط.</p>
+            <p style="color: #ef4444;">عذراً، لم نتمكن من استخراج رابط الفيديو. تأكد من صحة الرابط أو حاول مرة أخرى.</p>
         {% endif %}
         <div class="footer">TWEB Bot Production © 2026</div>
     </div>
@@ -127,7 +127,12 @@ def web_download():
     
     direct_link = None
     try:
-        ydl_opts = {'format': 'best', 'quiet': True}
+        ydl_opts = {
+            'format': 'best', 
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 10,
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             direct_link = info.get('url')
@@ -346,7 +351,6 @@ def handle_social_links(message):
     
     url = message.text.strip()
     
-    # رابط موقعك المباشر على Railway
     railway_domain = "https://twebbot-production.up.railway.app"
     web_page_url = f"{railway_domain}/dl?url={url}"
     
