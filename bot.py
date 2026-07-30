@@ -5,6 +5,7 @@ import random
 import datetime
 import pytz
 import re
+import requests
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_video
@@ -78,6 +79,21 @@ def save_db(db):
         os.replace(temp_file, DB_FILE)
     except Exception as e:
         print(f"DB Save Error: {e}")
+
+# ================= دالة رفع الملفات الكبيرة لموقع خارجي =================
+def upload_to_external_host(file_path):
+    """دالة لرفع الملفات التي تتجاوز حد تيليجرام (50 ميجابايت) إلى موقع خارجي مع توقيع TWEB"""
+    url = "https://catbox.moe/user/api.php"
+    try:
+        with open(file_path, "rb") as f:
+            files = {"fileToUpload": f}
+            data = {"reqtype": "fileupload", "userhash": ""}
+            response = requests.post(url, data=data, files=files)
+            if response.status_code == 200:
+                return response.text.strip()
+    except Exception as e:
+        print(f"External Upload Error: {e}")
+    return None
 
 # ================= لوحات تحكم الإدارة =================
 def get_admin_keyboard():
@@ -303,7 +319,7 @@ def handle_sticker_request(message):
     else:
         send_random_sticker(message.chat.id)
 
-# ================= معالج روابط السوشيال ميديا للتحميل (مع الحذف التلقائي) =================
+# ================= معالج روابط السوشيال ميديا للتحميل (مع فحص الحجم وتوقيع TWEB) =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text:
@@ -322,19 +338,55 @@ def handle_social_links(message):
     
     if file_path and os.path.exists(file_path):
         try:
-            with open(file_path, 'rb') as f:
-                bot.send_video(
-                    message.chat.id, 
-                    f, 
-                    caption="✅ تم التنزيل والإرسال بنجاح عبر بوت TWEB",
-                    parse_mode="Markdown"
+            # حساب حجم الملف بالميجابايت
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            
+            if file_size_mb > 49:
+                bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=sent_msg.message_id,
+                    text="📥 الملف كبير جداً (>50 ميجابايت)، يتم الآن رفعه عبر نظام TWEB الخارجي..."
                 )
-            bot.delete_message(message.chat.id, sent_msg.message_id)
+                
+                external_link = upload_to_external_host(file_path)
+                
+                if external_link:
+                    bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=sent_msg.message_id,
+                        text=(
+                            "✨ **TWEB Media Service**\n"
+                            "━━━━━━━━━━━━━━━━━━━\n"
+                            "✅ تم رفع الفيديو بنجاح على الرابط الخارجي:\n\n"
+                            f"🔗 [اضغط هنا للتحميل المباشر]({external_link})\n\n"
+                            "⚡ **TWEB Bot Production**"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                else:
+                    bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=sent_msg.message_id,
+                        text="❌ حدث خطأ أثناء رفع الملف عبر خدمة TWEB الخارجية."
+                    )
+            else:
+                with open(file_path, 'rb') as f:
+                    bot.send_video(
+                        message.chat.id, 
+                        f, 
+                        caption=(
+                            "✨ **TWEB Media Service**\n"
+                            "✅ تم التنزيل والإرسال بنجاح\n"
+                            "⚡ **TWEB Bot Production**"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                bot.delete_message(message.chat.id, sent_msg.message_id)
         except Exception as e:
             bot.edit_message_text(
                 chat_id=message.chat.id, 
                 message_id=sent_msg.message_id, 
-                text="⚠️ حدث خطأ أثناء إرسال الفيديو، قد يكون حجم الملف كبيراً جداً."
+                text=f"⚠️ حدث خطأ أثناء إرسال الفيديو: {e}"
             )
         finally:
             if os.path.exists(file_path):
@@ -662,5 +714,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ تفضيلاتك وأسلوبك، سألتزم بها بدقة في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث ملف bot.py وتحسين جميع المعالجات واستقرار الأزرار وقاعدة البيانات بنجاح!")
+    print("تم تحديث ملف bot.py بنجاح مع إضافة نظام الرفع الخارجي وتوقيع TWEB للفيديوهات الكبيرة!")
     bot.infinity_polling()
