@@ -7,7 +7,7 @@ if not os.path.exists('downloads'):
 
 def get_video_info(url):
     """
-    دالة لاستخراج تفاصيل المقطع قبل التحميل لعرضها للمستخدم
+    دالة لاستخراج تفاصيل المقطع قبل التحميل لعرضها للمستخدم (مع دعم كامل لتجاوز حظر يوتيوب)
     """
     ydl_opts = {
         'quiet': True,
@@ -15,6 +15,13 @@ def get_video_info(url):
         'geo_bypass': True,
         'nocheckcertificate': True,
         'extract_flat': False,
+        'socket_timeout': 30,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -39,29 +46,39 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
+    # إعدادات عامة لتجاوز حظر يوتيوب ومواقع السوشيال ميديا
+    common_opts = {
+        'geo_bypass': True,
+        'nocheckcertificate': True,
+        'quiet': True,
+        'no_warnings': True,
+        'max_filesize': max_size_bytes,
+        'socket_timeout': 30,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
+    }
+
     if media_type == 'video':
         ydl_opts = {
-            # إعدادات مرنة جداً لدعم تيك توك ويوتيوب معاً
+            **common_opts,
             'format': 'bestvideo[ext=mp4][filesize<=45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<=45M]/best[filesize<=45M]/best',
-            'outtmpl': 'downloads/%(title)s.%(ext)s',
+            'outtmpl': 'downloads/%(id)s.%(ext)s',
             'merge_output_format': 'mp4',
-            'geo_bypass': True,
-            'nocheckcertificate': True,
-            'quiet': True,
-            'no_warnings': True,
-            'max_filesize': max_size_bytes,
         }
     else: 
         ydl_opts = {
+            **common_opts,
             'format': 'bestaudio/best',
+            'outtmpl': 'downloads/%(id)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3', # MP3 أفضل وأكثر استقراراً من m4a
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
             }],
-            'outtmpl': 'downloads/%(title)s.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-            'max_filesize': max_size_bytes,
         }
 
     # إضافة العداد إذا تم تمريره
@@ -73,11 +90,16 @@ def download_media(url, media_type='video', progress_callback=None):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # تصحيح الامتداد النهائي
+            # تصحيح الامتداد النهائي بدقة عالية
             if media_type == 'audio':
-                filename = filename.rsplit('.', 1)[0] + '.mp3'
-            elif media_type == 'video' and not filename.endswith('.mp4'):
-                filename = filename.rsplit('.', 1)[0] + '.mp4'
+                base_name = os.path.splitext(filename)[0]
+                filename = base_name + '.mp3'
+            elif media_type == 'video':
+                base_name = os.path.splitext(filename)[0]
+                if not os.path.exists(filename) and os.path.exists(base_name + '.mp4'):
+                    filename = base_name + '.mp4'
+                elif not filename.endswith('.mp4'):
+                    filename = base_name + '.mp4'
                 
             return filename
             
