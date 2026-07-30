@@ -184,14 +184,14 @@ def get_ai_reply(message, user_message):
     dev_directive = ""
     if is_developer:
         dev_directive = (
-            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB)، "
+            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
             f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
             f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
             f"ولا تنكر أبداً أنه مطورك وصانعك."
         )
     
     system_prompt = (
-        f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB)، واسمك تويب (Tweb أو TWEB). "
+        f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB), واسمك تويب (Tweb أو TWEB). "
         f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
         f"{dev_directive}\n"
         f"قواعد الإجابة الصارمة:\n"
@@ -409,20 +409,6 @@ def callback_handler(call):
             "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
-
-    elif call.data == "user_menu_games":
-        bot.answer_callback_query(call.id)
-        games_markup = InlineKeyboardMarkup()
-        games_markup.row(InlineKeyboardButton("🎮 لعبة XO", callback_data="game_xo_main"))
-        games_markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية", callback_data="user_back_home"))
-        edit_user_interface(call, "🎮 **قسم الألعاب والترفيه**\n\nاختر اللعبة التي تود لعبها:", games_markup)
-
-    elif call.data == "game_xo_main":
-        bot.answer_callback_query(call.id)
-        xo_markup = InlineKeyboardMarkup()
-        xo_markup.row(InlineKeyboardButton("💜 تحدي اللعبة", switch_inline_query="XO_Challenge"))
-        xo_markup.row(InlineKeyboardButton("« رجوع للألعاب", callback_data="user_menu_games"))
-        edit_user_interface(call, "🎮 **أهلاً بك في قسم لعبة XO 🕹️**\n\nانقر على زر التحدي أدناه لمشاركة اللعبة مع أصدقائك في أي محادثة:", xo_markup)
 
     if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
