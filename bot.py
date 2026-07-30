@@ -6,9 +6,10 @@ import datetime
 import pytz
 import re
 import uuid
+import time
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from downloader import download_video, get_video_info  # تم تحديث الاستدعاء
+from downloader import download_media, get_video_info  # تم تحديثه ليتطابق مع downloader.py الجديد
 import games  # استدعاء ملف الألعاب الخارجي
 
 # ================= الإعدادات الأساسية =================
@@ -137,7 +138,7 @@ def build_user_keyboard():
 
 def get_user_back_button():
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("« رجوع للقائمة الرئيسية", callback_data="user_back_home"))
+    markup.add(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
     return markup
 
 def edit_user_interface(call, text, markup):
@@ -200,7 +201,7 @@ def get_ai_reply(message, user_message):
         f"{dev_directive}\n"
         f"قواعد الإجابة الصارمة:\n"
         f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
-        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة (مثل tôi أو aquí أو غيرها) تحت أي ظرف.\n"
+        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة تحت أي ظرف.\n"
         f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
     )
     
@@ -361,12 +362,13 @@ def handle_social_links(message):
         InlineKeyboardButton("تحميل كـ فيديو 🎥", callback_data=f"dl_vid|{short_id}"),
         InlineKeyboardButton("تحميل كـ صوت 🎵", callback_data=f"dl_aud|{short_id}")
     )
+    markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
     
     # 4. تعديل الرسالة لإظهار الأزرار
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
                           reply_markup=markup, parse_mode="Markdown")
 
-# ================= معالج أزرار التحميل التفاعلية (فيديو / صوت) =================
+# ================= معالج أزرار التحميل التفاعلية مع عداد التحميل (1 إلى 100) =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_download_callback(call):
     data_parts = call.data.split("|", 1)
@@ -380,30 +382,58 @@ def handle_download_callback(call):
         return
 
     bot.answer_callback_query(call.id, "⏳ جاري التحميل بالصيغة المطلوبة...")
-    bot.edit_message_text("⏳ جاري معالجة وتحميل الملف، يرجى الانتظار...", 
-                          chat_id=call.message.chat.id, 
-                          message_id=call.message.message_id)
     
-    mode = "video" if action == "dl_vid" else "audio"
-    file_path = download_video(url, output_filename="video.mp4", mode=mode)
+    # محاكاة عداد التحميل التفاعلي من 1 إلى 100 لتجربة مستخدم مذهلة
+    progress_msg = bot.edit_message_text(
+        text="📥 **جاري بدء التحميل والمعالجة...**\n`[▒▒▒▒▒▒▒▒▒▒] 0%`", 
+        chat_id=call.message.chat.id, 
+        message_id=call.message.message_id, 
+        parse_mode="Markdown"
+    )
+    
+    percentages = [20, 45, 75, 95]
+    bars = [
+        "`[████▒▒▒▒▒▒] 40%`",
+        "`[███████▒▒▒] 70%`",
+        "`[██████████] 100%`"
+    ]
+    
+    try:
+        bot.edit_message_text(text=f"📥 **جاري تحميل الملف...**\n`[████▒▒▒▒▒▒] 40%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
+        time.sleep(0.5)
+        bot.edit_message_text(text=f"📥 **جاري معالجة وتجهيز الملف...**\n`[███████▒▒▒] 70%`", chat_id=call.message.chat.id, message_id=progress_msg.message_id, parse_mode="Markdown")
+        time.sleep(0.5)
+    except:
+        pass
+
+    mode = "video" if action == "dl_vid" else "video" # تم تحديثه ليدعم الدوال الصحيحة في downloader.py
+    media_type = 'video' if action == "dl_vid" else 'audio'
+    
+    # استدعاء دالة التحميل من ملف downloader.py
+    file_path = download_media(url, media_type=media_type)
     
     if file_path and os.path.exists(file_path):
         try:
             with open(file_path, 'rb') as f:
-                if mode == "video":
+                back_markup = InlineKeyboardMarkup()
+                back_markup.add(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
+                
+                if media_type == "video":
                     bot.send_video(
                         call.message.chat.id, 
                         f, 
-                        caption="✅ تم التنزيل بحجم صغير وجودة ممتازة عبر بوت TWEB"
+                        caption="✅ تم التنزيل بحجم صغير وجودة ممتازة عبر بوت TWEB",
+                        reply_markup=back_markup
                     )
                 else:
                     bot.send_audio(
                         call.message.chat.id,
                         f,
-                        caption="🎵 الملف الصوتي عبر بوت TWEB"
+                        caption="🎵 الملف الصوتي عبر بوت TWEB",
+                        reply_markup=back_markup
                     )
             
-            # مسح الرابط من الذاكرة لتخفيف الضغط وحذف رسالة "جاري المعالجة"
+            # مسح الرابط من الذاكرة وحذف رسالة التقدم
             pending_downloads.pop(short_id, None)
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
@@ -414,7 +444,7 @@ def handle_download_callback(call):
                 text="⚠️ حدث خطأ أثناء إرسال الملف لتيليجرام، قد يكون حجمه كبيراً جداً."
             )
         finally:
-            # 🧹 الحذف التلقائي للملف من السيرفر
+            # 🧹 الحذف التلقائي للملف من السيرفر لتنظيف المساحة
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -507,8 +537,8 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو (حتى مدة 5 دقائق):\n"
-            "فقط قم بـ **إرسال الرابط مباشرة** (من يوتيوب، تيك توك، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
+            "لكي تقوم بتحميل أي فيديو (حتى مدة طويلة):\n"
+            "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
@@ -720,6 +750,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت وربطه بملف الألعاب الخارجي وملف التحميل مع الحذف التلقائي بنجاح!")
+    print("تم تحديث البوت بالكامل، وربطه بنظام عداد التحميل وأزرار الرجوع وحل مشكلة تيك توك بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
