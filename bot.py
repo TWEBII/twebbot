@@ -113,7 +113,6 @@ def build_user_keyboard():
                InlineKeyboardButton("التواصل 📣", callback_data="user_menu_contact"))
     markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="user_menu_support"),
                InlineKeyboardButton("دليل الاستخدام ❓", callback_data="user_menu_guide"))
-    # إضافة زر التحميل فوق زر الترجمة تماماً كما طلبت
     markup.row(InlineKeyboardButton("تحميل من السوشيال ميديا 📥", callback_data="user_menu_download_guide"))
     markup.row(InlineKeyboardButton("ترجمة صور ومستندات 📸", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
     
@@ -160,12 +159,13 @@ def get_ai_reply(user_id, user_message):
     db = load_db()
     custom_instr = db.get("user_instructions", {}).get(str(user_id), "لا توجد شروط مخصصة.")
     
+    # تحسين النظام البرمجي لمنع خلط اللغات نهائياً
     system_prompt = (
         f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB)، واسمك تويب (Tweb أو TWEB). "
         f"حساب مطورك على ببجي هو TWEB. الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
         f"قواعد الإجابة الصارمة:\n"
-        f"1. تحدث باللغة العربية الفصحى الحديثة والمفهومة بدقة بالغة وبأسلوب رسمي رصين.\n"
-        f"2. يمنع منعاً باتاً إدخال أو دمج أي كلمات لغات أجنبية غريبة.\n"
+        f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
+        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية (مثل الإسبانية، الإنجليزية، الفيتنامية، أو غيرها) داخل نص الإجابة العربية تحت أي ظرف.\n"
         f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
     )
     
@@ -194,10 +194,8 @@ def start_command(message):
         bot.send_message(user_id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
         return
 
-    # إرسال ملصق عشوائي ترحيبي مع كل start
     send_random_sticker(user_id)
 
-    # التحقق من المستخدم الجديد وإرسال إشعار للمطور
     if user_id not in db["users"] and str(user_id) != ADMIN_ID:
         db["users"].append(user_id)
         save_db(db)
@@ -205,7 +203,6 @@ def start_command(message):
             try:
                 name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
                 user_link = f"[{name}](tg://user?id={user_id})"
-                
                 username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
                 
                 notice_msg = (
@@ -234,7 +231,7 @@ def start_command(message):
         else:
             bot.send_message(user_id, db.get("start_text"), reply_markup=build_user_keyboard())
 
-# ================= معالج روابط السوشيال ميديا للتحميل (الخطوة الثالثة) =================
+# ================= معالج روابط السوشيال ميديا للتحميل =================
 @bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
 def handle_social_links(message):
     if "translate.google.com" in message.text:
@@ -291,7 +288,7 @@ def handle_sticker(message):
     if not db.get("bot_active", True) and str(message.chat.id) != ADMIN_ID: return
     
     emoji = message.sticker.emoji if message.sticker.emoji else "غير معروف"
-    prompt = f"المستخدم أرسل لك ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة قصيرة ولطيفة جداً."
+    prompt = f"المستخدم أرسل لك ملصقاً (Sticker) يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة جداً."
     
     bot.send_chat_action(message.chat.id, 'typing')
     ai_response = get_ai_reply(message.chat.id, prompt)
@@ -303,7 +300,6 @@ def callback_handler(call):
     user_id = call.message.chat.id
     db = load_db()
 
-    # ---------------- أزرار المستخدمين ----------------
     if call.data == "user_back_home":
         bot.answer_callback_query(call.id)
         edit_user_interface(call, db.get("start_text"), build_user_keyboard())
@@ -352,7 +348,6 @@ def callback_handler(call):
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
-    # ---------------- أزرار لوحة التحكم الخاصة بالمطور أحمد ----------------
     if str(user_id) == ADMIN_ID:
         if call.data == "back_main":
             stats_text = (
@@ -560,5 +555,5 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تفعيل البوت بكافة التحديثات الشاملة (Menu + Stickers + Translation + Downloader)")
+    print("تم تحديث البوت ومنع خلط اللغات نهائياً")
     bot.infinity_polling()
