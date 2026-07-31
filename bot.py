@@ -9,7 +9,7 @@ import time
 import logging
 from groq import Groq
 import arabic_reshaper
-from bidi.algorithm import get_display
+from bidi.algorithm import get_bidi
 from PyPDF2 import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -355,7 +355,7 @@ def handle_social_links(message):
         f"⏱ **المدة:** {duration}\n"
         f"👁 **المشاهدات:** {views}\n"
         f"👤 **القناة:** {uploader}\n\n"
-        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 50MB):**"
+        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 20MB لتيليجرام):**"
     )
     
     short_id = str(uuid.uuid4())[:8]
@@ -413,9 +413,9 @@ def handle_download_callback(call):
 
     if not file_path:
         error_message = (
-            "❌ **عذراً، تعذر إرسال الفيديو!**\n\n"
-            "> حجم الفيديو يتجاوز حد تليجرام المسموح (50 ميجابايت)، وحتى بعد محاولة تحميله بأقل دقة ممكنة، لا يزال الملف كبيراً جداً.\n\n"
-            "💡 **نصيحة:** حاول تحميل مقطع أقصر مدة ليناسب الحد المسموح."
+            "❌ **عذراً، تعذر إرسال الملف!**\n\n"
+            "> حجم الملف يتجاوز الحد الأقصى المسموح لرفع بوتات تليجرام (20 ميجابايت).\n\n"
+            "💡 **نصيحة:** حاول تحميل مقطع أقصر مدة أو حجم ليناسب الحد المسموح."
         )
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
@@ -424,6 +424,25 @@ def handle_download_callback(call):
             parse_mode="Markdown"
         )
     elif os.path.exists(file_path):
+        # فحص حجم الملف الفعلي لمنع تجاوز حد 20MB الخاص بـ Telegram Bot API قبل الإرسال
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 20:
+            if os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
+            error_message = (
+                "❌ **عذراً، تعذر إرسال الملف!**\n\n"
+                f"> حجم الملف النهائي ({file_size_mb:.1f} ميجابايت) يتجاوز حد تيليجرام البالغ 20 ميجابايت.\n\n"
+                "💡 **نصيحة:** حاول تحميل ملف أصغر أو مقطع أقصر."
+            )
+            bot.edit_message_text(
+                chat_id=call.message.chat.id, 
+                message_id=progress_msg.message_id, 
+                text=error_message,
+                parse_mode="Markdown"
+            )
+            return
+
         try:
             bot.edit_message_text(
                 text="✅ **اكتمل التحميل، جاري الرفع لتيليجرام...**", 
@@ -445,7 +464,7 @@ def handle_download_callback(call):
                 else:
                     bot.send_audio(
                         call.message.chat.id, f,
-                        caption="🎵 الملف الصوتي عبر بوت TWEB",
+                        caption="🎵 الملف الصوتي عبر بوت التنزيل",
                         reply_markup=back_markup
                     )
             
@@ -457,7 +476,7 @@ def handle_download_callback(call):
             bot.edit_message_text(
                 chat_id=call.message.chat.id, 
                 message_id=progress_msg.message_id, 
-                text="⚠️ حدث خطأ أثناء رفع الملف إلى تيليجرام."
+                text="⚠️ حدث خطأ أثناء رفع الملف إلى تيليجرام (قد يكون حجم الملف أكبر من الحد المسموح)."
             )
         finally:
             if os.path.exists(file_path):
@@ -468,7 +487,7 @@ def handle_download_callback(call):
 def fix_arabic(text):
     try:
         reshaped_text = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped_text)
+        bidi_text = get_bidi(reshaped_text)
         return bidi_text
     except:
         return text
@@ -488,7 +507,12 @@ def handle_document_translation(message):
     file_name = file_info.file_name
     
     if not file_name.lower().endswith('.pdf'):
-        bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF الطبية والعلمية فقط حالياً.")
+        bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF فقط حالياً.")
+        return
+
+    # التحقق من حجم الملف المرفوع قبل التحميل والمعالجة (الحد الأقصى 20 ميجابايت)
+    if file_info.file_size and file_info.file_size > 20 * 1024 * 1024:
+        bot.reply_to(message, f"❌ عذراً، حجم الملف الكبير ({file_info.file_size / (1024*1024):.1f} MB) يتجاوز حد تيليجرام المسموح للبوتات (20 MB). يرجى إرسال ملف اصغر حجمأ.")
         return
 
     status_msg = bot.reply_to(message, "⏳ **جاري قراءة الملف واستخراج النصوص لترجمتها، يرجى الانتظار...**", parse_mode="Markdown")
@@ -533,7 +557,7 @@ def handle_document_translation(message):
                 
             translated_content = ""
             if extracted_text and extracted_text.strip():
-                prompt = f"قم بترجمة هذا النص المستخرج من صفحة PDF طبية/علمية إلى اللغة العربية بدقة تامة، واجعل التنسيق مرتباً:\n\n{extracted_text}"
+                prompt = f"قم بترجمة هذا النص المستخرج من صفحة PDF إلى اللغة العربية بدقة تامة، واجعل التنسيق مرتباً:\n\n{extracted_text}"
                 translated_content = get_ai_reply(message, prompt)
             else:
                 translated_content = "[ صفحة فارغة أو تحتوي على صور صامتة ]"
@@ -562,6 +586,12 @@ def handle_document_translation(message):
             c.showPage()
             
         c.save()
+
+        # التحقق من حجم ملف الـ PDF الناتج قبل إرساله لمنع خطأ 400 إذا تجاوز 20MB
+        output_size_mb = os.path.getsize(output_pdf_path) / (1024 * 1024)
+        if output_size_mb > 20:
+            bot.edit_message_text(f"⚠️ الملف الناتج كبير جداً ({output_size_mb:.1f} MB) ويتجاوز حد الـ 20MB المسموح في تيليجرام.", chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
 
         bot.edit_message_text("📤 **اكتملت إعادة بناء ملف الـ PDF المترجم، جاري إرساله...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
 
@@ -665,8 +695,8 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 50 ميجابايت):\n"
-            "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
+            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 20 ميجابايت لتيليجرام):\n"
+            "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة تناسب الحد المسموح!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
@@ -882,6 +912,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث البوت بالكامل مع ميزة قراءة وترجمة ملفات PDF وإعادة بنائها بملف جديد بنجاح!")
+    logger.info("تم تحديث الكود بالكامل ومعالجة حدود حجم ملفات تيليجرام (20 ميجابايت) بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
