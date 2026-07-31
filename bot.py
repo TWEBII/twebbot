@@ -561,8 +561,7 @@ def handle_document_translation(message):
                 prompt = f"قم بترجمة هذا النص المستخرج من ملف PDF إلى اللغة العربية الفصحى بدقة واحترافية عالية، واجعل التنسيق مرتباً:\n\n{extracted_text}"
                 translated_content = get_ai_reply(message, prompt)
             else:
-                # إذا كانت الصفحة مصورة بالكامل بدون نص رقمي داخلي
-                translated_content = "ملاحظة: هذه الصفحة تبدو مصورة (Scan) أو لا تحتوي على طبقة نص رقمية قابلة للاستخراج المباشر. يرجى استخدام أداة ترجمة صور المستندات."
+                translated_content = "ملاحظة: هذه الصفحة تبدو مصورة (Scan) أو لا تحتوي على طبقة نص رقمية قابلة للاستخراج المباشر."
 
             y_position = height - 50
             
@@ -571,16 +570,29 @@ def handle_document_translation(message):
             c.drawString(50, y_position, header_text)
             y_position -= 35
             
-            # تقسيم وترتيب الأسطر بشكل صحيح لمنع الاختفاء أو الخروج عن الصفحة
-            lines = translated_content.split('\n')
-            for line in lines:
-                # التفاف النصوص الطويلة أوتوماتيكياً
-                words = line.split(' ')
-                current_line = ""
-                for word in words:
-                    test_line = f"{current_line} {word}".strip()
-                    # قياس عرض النص لضمان عدم تجاوزه لعرض الصفحة
-                    if len(test_line) > 75: 
+            # تقسيم وترتيب الأسطر وتفادي أي أخطاء قوائم فارغة
+            if translated_content:
+                lines = translated_content.split('\n')
+                for line in lines:
+                    words = line.split(' ') if line else []
+                    current_line = ""
+                    for word in words:
+                        test_line = f"{current_line} {word}".strip()
+                        if len(test_line) > 75: 
+                            if y_position < 50:
+                                c.showPage()
+                                if font_registered: c.setFont('ArabicFont', 11)
+                                else: c.setFont('Helvetica', 10)
+                                y_position = height - 50
+                            
+                            processed_line = fix_arabic(current_line)
+                            c.drawString(50, y_position, processed_line)
+                            y_position -= 20
+                            current_line = word
+                        else:
+                            current_line = test_line
+                    
+                    if current_line:
                         if y_position < 50:
                             c.showPage()
                             if font_registered: c.setFont('ArabicFont', 11)
@@ -589,26 +601,15 @@ def handle_document_translation(message):
                         
                         processed_line = fix_arabic(current_line)
                         c.drawString(50, y_position, processed_line)
-                        y_position -= 20
-                        current_line = word
-                    else:
-                        current_line = test_line
-                
-                if current_line:
-                    if y_position < 50:
-                        c.showPage()
-                        if font_registered: c.setFont('ArabicFont', 11)
-                        else: c.setFont('Helvetica', 10)
-                        y_position = height - 50
-                    
-                    processed_line = fix_arabic(current_line)
-                    c.drawString(50, y_position, processed_line)
-                    y_position -= 22
+                        y_position -= 22
                 
             c.showPage()
             c.restoreState()
             
         c.save()
+
+        if not os.path.exists(output_pdf_path) or os.path.getsize(output_pdf_path) == 0:
+            raise Exception("فشل حفظ ملف الـ PDF الناتج أو أن الملف فارغ.")
 
         output_size_mb = os.path.getsize(output_pdf_path) / (1024 * 1024)
         if output_size_mb > 20:
@@ -932,6 +933,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث الكود لمعالجة النصوص الممسوحة وطباعتها بداخل الـ PDF بشكل صحيح!")
+    logger.info("تم تحديث وتصحيح الكود بالكامل لمنع أخطاء الـ PDF وضمان عمل البوت بثبات!")
     bot.remove_webhook()
     bot.infinity_polling()
