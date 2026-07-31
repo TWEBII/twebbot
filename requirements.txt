@@ -1,4 +1,4 @@
-pyTelegramBotAPI
+PyTelegramBotAPI
 groq
 pytz
 yt-dlp>=2026.01.01
@@ -10,3 +10,5 @@ PyPDF2
 reportlab
 arabic-reshaper
 python-bidi
+apscheduler
+hijri-converter
