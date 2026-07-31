@@ -67,15 +67,11 @@ def download_media(url, media_type='video', progress_callback=None):
     }
 
     if media_type == 'audio':
+        # تحميل الصوت بصيغة متاح تنزيلها مباشرة بدون الحاجة لـ ffmpeg extraction معقد
         ydl_opts = {
             **common_opts,
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
         }
     else:
         ydl_opts = {
@@ -92,14 +88,13 @@ def download_media(url, media_type='video', progress_callback=None):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
+            final_path = filename
             
-            if media_type == 'audio':
-                base_name = os.path.splitext(filename)[0]
-                final_path = base_name + '.mp3'
-            else:
+            if media_type != 'audio':
                 base_name = os.path.splitext(filename)[0]
                 mp4_file = base_name + '.mp4'
-                final_path = mp4_file if os.path.exists(mp4_file) else filename
+                if os.path.exists(mp4_file):
+                    final_path = mp4_file
             
             if os.path.exists(final_path):
                 file_size = os.path.getsize(final_path)
