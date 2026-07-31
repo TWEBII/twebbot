@@ -59,6 +59,7 @@ def download_media(url, media_type='video', progress_callback=None):
 
     is_tiktok = 'tiktok.com' in real_url
     is_insta = 'instagram.com' in real_url
+    is_youtube = 'youtube.com' in real_url or 'youtu.be' in real_url
 
     common_opts = {
         'geo_bypass': True,
@@ -69,15 +70,16 @@ def download_media(url, media_type='video', progress_callback=None):
         'socket_timeout': 30,
     }
 
-    if not is_tiktok and not is_insta:
+    if is_youtube:
+        # تحديث عملاء يوتيوب لتجاوز حماية التحقق من البوت
         common_opts.update({
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'android']
+                    'player_client': ['android', 'web', 'mweb']
                 }
             },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             }
         })
     elif is_tiktok:
@@ -88,7 +90,6 @@ def download_media(url, media_type='video', progress_callback=None):
             }
         })
     elif is_insta:
-        # إعدادات متطورة لتجاوز حماية انستغرام وسحب الفيديو أو الصوت بنجاح
         common_opts.update({
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
