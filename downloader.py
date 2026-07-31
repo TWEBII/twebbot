@@ -46,7 +46,7 @@ def get_video_info(url):
         return {'title': 'Media', 'id': 'temp_id'}
 
 def download_media(url, media_type='video', progress_callback=None):
-    max_size_bytes = 45 * 1024 * 1024  # 45 ميجابايت
+    max_size_bytes = 50 * 1024 * 1024  # 50 ميجابايت كحد أقصى لتليجرام
     real_url = resolve_url(url)
 
     def hook(d):
@@ -61,10 +61,9 @@ def download_media(url, media_type='video', progress_callback=None):
     is_insta = 'instagram.com' in real_url
     is_youtube = 'youtube.com' in real_url or 'youtu.be' in real_url
 
-    # إذا كان الرابط يوتيوب، سنستخدم الطريقة البديلة المباشرة لتجاوز حماية السيرفرات نهائياً
+    # معالجة يوتيوب والـ Shorts عبر واجهة السحب المباشرة
     if is_youtube:
         try:
-            # استخدام واجهة سحب سريعة ومباشرة لفيديوهات ويوتيوب والـ Shorts
             api_url = f"https://co.wuk.sh/api/json"
             data = json.dumps({
                 "url": real_url,
@@ -88,14 +87,17 @@ def download_media(url, media_type='video', progress_callback=None):
                     ext = 'mp3' if media_type == 'audio' else 'mp4'
                     file_path = f"downloads/youtube_media.{ext}"
                     
-                    # تحميل الملف مباشرة وبدون قيود
                     urllib.request.urlretrieve(download_url, file_path)
                     if os.path.exists(file_path):
+                        # التحقق من أن حجم الملف لا يتجاوز 50 ميجابايت
+                        if os.path.getsize(file_path) > max_size_bytes:
+                            os.remove(file_path)
+                            print("Error: File exceeds 50MB limit even at lowest quality.")
+                            return None
                         return file_path
         except Exception as e:
             print(f"Alternative API Error: {e}")
 
-    # باقي المنصات (تيك توك وإنستغرام) تعمل بشكل طبيعي عبر yt-dlp
     common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
@@ -123,7 +125,7 @@ def download_media(url, media_type='video', progress_callback=None):
 
     ydl_opts = {
         **common_opts,
-        'format': 'best[filesize<=45M]/best',
+        'format': 'best[filesize<=50M]/best',
         'outtmpl': 'downloads/%(id)s.%(ext)s',
     }
 
@@ -136,9 +138,13 @@ def download_media(url, media_type='video', progress_callback=None):
             filename = ydl.prepare_filename(info)
             base_name = os.path.splitext(filename)[0]
             mp4_file = base_name + '.mp4'
-            if os.path.exists(mp4_file):
-                return mp4_file
-            return filename
+            final_path = mp4_file if os.path.exists(mp4_file) else filename
+            
+            if os.path.exists(final_path) and os.path.getsize(final_path) > max_size_bytes:
+                os.remove(final_path)
+                return None
+                
+            return final_path
     except Exception as e:
         print(f"Download Error: {e}")
         return None
