@@ -26,9 +26,9 @@ def get_video_info(url):
         'geo_bypass': True,
         'nocheckcertificate': True,
         'socket_timeout': 10,
-        'extractor_args': {'youtube': {'player_client': ['mweb', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
@@ -59,15 +59,14 @@ def download_media(url, media_type='video', progress_callback=None):
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        'extractor_args': {'youtube': {'player_client': ['mweb', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
 
     if media_type == 'audio':
-        # تحميل أفضل صوت متاح بصيغة جاهزة (مثل m4a) مباشرة بدون الحاجة لـ ffmpeg
         ydl_opts = {
             **common_opts,
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
@@ -76,9 +75,8 @@ def download_media(url, media_type='video', progress_callback=None):
     else:
         ydl_opts = {
             **common_opts,
-            'format': 'best[filesize<50M]/bestvideo[height<=720]+bestaudio/best/worst',
+            'format': 'best[ext=mp4]/best/worst',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'merge_output_format': 'mp4',
         }
 
     if progress_callback:
