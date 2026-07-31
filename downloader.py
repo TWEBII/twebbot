@@ -53,14 +53,12 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    ydl_opts = {
+    common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        'format': 'b / best',
-        'outtmpl': 'downloads/%(id)s.%(ext)s',
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -69,12 +67,23 @@ def download_media(url, media_type='video', progress_callback=None):
     }
 
     if media_type == 'audio':
-        ydl_opts['format'] = 'bestaudio'
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '128',
-        }]
+        ydl_opts = {
+            **common_opts,
+            'format': 'bestaudio/best',
+            'outtmpl': 'downloads/%(id)s.%(ext)s',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        }
+    else:
+        ydl_opts = {
+            **common_opts,
+            'format': 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b',
+            'outtmpl': 'downloads/%(id)s.%(ext)s',
+            'merge_output_format': 'mp4',
+        }
 
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
@@ -88,7 +97,9 @@ def download_media(url, media_type='video', progress_callback=None):
                 base_name = os.path.splitext(filename)[0]
                 final_path = base_name + '.mp3'
             else:
-                final_path = filename
+                base_name = os.path.splitext(filename)[0]
+                mp4_file = base_name + '.mp4'
+                final_path = mp4_file if os.path.exists(mp4_file) else filename
             
             if os.path.exists(final_path):
                 file_size = os.path.getsize(final_path)
