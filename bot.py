@@ -9,7 +9,7 @@ import time
 import logging
 from groq import Groq
 import arabic_reshaper
-from bidi.algorithm import get_bidi
+from bidi.algorithm import get_display
 from PyPDF2 import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -468,7 +468,7 @@ def handle_download_callback(call):
 def fix_arabic(text):
     try:
         reshaped_text = arabic_reshaper.reshape(text)
-        bidi_text = get_bidi(reshaped_text)
+        bidi_text = get_display(reshaped_text)
         return bidi_text
     except:
         return text
