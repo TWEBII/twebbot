@@ -71,15 +71,16 @@ def download_media(url, media_type='video', progress_callback=None):
     }
 
     if is_youtube:
-        # تحديث عملاء يوتيوب لتجاوز حماية التحقق من البوت
+        # التعديل الجديد لتجاوز الحماية عبر مشغلات الويب الحديثة
         common_opts.update({
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web', 'mweb']
+                    'player_client': ['web', 'web_creator']
                 }
             },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
             }
         })
     elif is_tiktok:
