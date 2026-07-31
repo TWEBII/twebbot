@@ -6,3 +6,5 @@ flask
 deep-translator
 Pillow
 requests
+PyPDF2
+reportlab
