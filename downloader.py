@@ -26,6 +26,11 @@ def get_video_info(url):
         'geo_bypass': True,
         'nocheckcertificate': True,
         'socket_timeout': 10,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
 
     try:
@@ -56,6 +61,11 @@ def download_media(url, media_type='video', progress_callback=None):
         'socket_timeout': 30,
         'format': 'b / best',
         'outtmpl': 'downloads/%(id)s.%(ext)s',
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
 
     if media_type == 'audio':
