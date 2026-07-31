@@ -756,5 +756,4 @@ def process_user_instructions(message):
 if __name__ == "__main__":
     logger.info("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
     bot.remove_webhook()
-    # إضافة معاملات متقدمة لتجنب إيقاف البوت عند حدوث أخطاء في الاتصال
-    bot.infinity_polling(timeout=60, long_polling_timeout=30, request_timeout=60)
+    bot.infinity_polling()
