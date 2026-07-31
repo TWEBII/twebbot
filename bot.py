@@ -8,9 +8,13 @@ import uuid
 import time
 import logging
 from groq import Groq
+import arabic_reshaper
+from bidi.algorithm import get_bidi
 from PyPDF2 import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_media, get_video_info
@@ -460,7 +464,16 @@ def handle_download_callback(call):
                 try: os.remove(file_path)
                 except Exception as e: logger.error(f"Failed to remove file: {e}")
 
-# ================= التفاعل مع المستندات والملفات (ترجمة PDF لغاية 50 صفحة) =================
+# ================= دالة معالجة وتصحيح الحروف العربية =================
+def fix_arabic(text):
+    try:
+        reshaped_text = arabic_reshaper.reshape(text)
+        bidi_text = get_bidi(reshaped_text)
+        return bidi_text
+    except:
+        return text
+
+# ================= التفاعل مع المستندات والملفات (ترجمة PDF لغاية 50 صفحة وتوليد PDF جديد) =================
 @bot.message_handler(content_types=['document'])
 def handle_document_translation(message):
     db = load_db()
@@ -478,71 +491,102 @@ def handle_document_translation(message):
         bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF الطبية والعلمية فقط حالياً.")
         return
 
-    status_msg = bot.reply_to(message, "⏳ **جاري استلام الملف وقراءة أول 50 صفحة منه، يرجى الانتظار...**", parse_mode="Markdown")
+    status_msg = bot.reply_to(message, "⏳ **جاري قراءة الملف واستخراج النصوص لترجمتها، يرجى الانتظار...**", parse_mode="Markdown")
+    
+    input_pdf_path = f"temp_{user_id}.pdf"
+    output_pdf_path = f"Translated_{file_name}"
     
     try:
         file_info_path = bot.get_file(file_info.file_id)
         downloaded_file = bot.download_file(file_info_path.file_path)
         
-        input_pdf_path = f"temp_{user_id}.pdf"
-        output_pdf_path = f"translated_{user_id}.pdf"
-        
         with open(input_pdf_path, 'wb') as new_file:
             new_file.write(downloaded_file)
             
         reader = PdfReader(input_pdf_path)
-        extracted_text = ""
+        max_pages = min(len(reader.pages), 50) # ترجمة لغاية 50 صفحة
         
-        # قراءة لغاية 50 صفحة بناءً على رغبتك
-        max_pages = min(len(reader.pages), 50)
-        for i in range(max_pages):
-            text = reader.pages[i].extract_text()
-            if text:
-                extracted_text += f"\n\n--- [ صفحة {i+1} ] ---\n" + text
+        bot.edit_message_text(f"🔄 **جاري ترجمة صفحات المستند وإعادة بناء ملف الـ PDF ({max_pages} صفحة)...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
 
-        if not extracted_text.strip():
-            bot.edit_message_text("❌ عذراً، لم أتمكن من استخراج نص من هذا الملف (قد يكون مصوراً كصور صامتة).", chat_id=message.chat.id, message_id=status_msg.message_id)
-            return
-
-        bot.edit_message_text(f"🔄 **جاري ترجمة {max_pages} صفحة عبر الذكاء الاصطناعي (قد يستغرق وقتاً قليلاً)...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
-
-        # تقسيم النص لضمان عدم تجاوز حدود الـ API ومعالجة النصوص الطويلة بدقة
-        prompt = (
-            f"قم بترجمة هذا النص الطبي/العلمي المستخرج من كتاب إلى اللغة العربية بدقة واحترافية عالية، "
-            f"وحافظ على تنسيق أرقام الصفحات والعناوين قدر الإمكان:\n\n{extracted_text[:12000]}"
-        )
-        translated_text = get_ai_reply(message, prompt)
-
-        # إنشاء ملف PDF جديد بالنتائج المترجمة
         c = canvas.Canvas(output_pdf_path, pagesize=letter)
-        width, height = letter
         
-        text_object = c.beginText(40, height - 40)
-        text_object.setFont("Helvetica", 9)
-        
-        for line in translated_text.split('\n'):
-            if text_object.getY() < 40:
-                c.drawText(text_object)
-                c.showPage()
-                text_object = c.beginText(40, height - 40)
-                text_object.setFont("Helvetica", 9)
-            text_object.textLine(line[:95])
+        font_registered = False
+        font_paths = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "arial.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf"]
+        for fpath in font_paths:
+            if os.path.exists(fpath):
+                try:
+                    pdfmetrics.registerFont(TTFont('ArabicFont', fpath))
+                    font_registered = True
+                    break
+                except:
+                    continue
+
+        for i in range(max_pages):
+            page = reader.pages[i]
+            extracted_text = page.extract_text()
             
-        c.drawText(text_object)
+            c.saveState()
+            if font_registered:
+                c.setFont('ArabicFont', 11)
+            else:
+                c.setFont('Helvetica', 10)
+                
+            translated_content = ""
+            if extracted_text and extracted_text.strip():
+                prompt = f"قم بترجمة هذا النص المستخرج من صفحة PDF طبية/علمية إلى اللغة العربية بدقة تامة، واجعل التنسيق مرتباً:\n\n{extracted_text}"
+                translated_content = get_ai_reply(message, prompt)
+            else:
+                translated_content = "[ صفحة فارغة أو تحتوي على صور صامتة ]"
+
+            width, height = letter
+            y_position = height - 50
+            
+            header_text = fix_arabic(f"--- صفحة رقم {i+1} (مترجمة بواسطة بوت TWEB) ---")
+            c.drawString(50, y_position, header_text)
+            y_position -= 30
+            
+            lines = translated_content.split('\n')
+            for line in lines:
+                if y_position < 50:  
+                    c.showPage()
+                    if font_registered:
+                        c.setFont('ArabicFont', 11)
+                    else:
+                        c.setFont('Helvetica', 10)
+                    y_position = height - 50
+                
+                processed_line = fix_arabic(line[:90]) 
+                c.drawRightString(width - 50, y_position, processed_line)
+                y_position -= 18
+                
+            c.showPage()
+            
         c.save()
 
-        bot.edit_message_text("📤 **جاري رفع الملف المترجم (لغاية 50 صفحة) إليك...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+        bot.edit_message_text("📤 **اكتملت إعادة بناء ملف الـ PDF المترجم، جاري إرساله...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
 
         with open(output_pdf_path, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"✅ تم ترجمة أول {max_pages} صفحة من الكتاب بنجاح عبر بوت TWEB")
+            bot.send_document(
+                message.chat.id, f, 
+                caption=f"✅ تم ترجمة ملف ({file_name}) بنجاح وإرساله كملف PDF متوافق."
+            )
 
-        if os.path.exists(input_pdf_path): os.remove(input_pdf_path)
-        if os.path.exists(output_pdf_path): os.remove(output_pdf_path)
         bot.delete_message(message.chat.id, status_msg.message_id)
 
     except Exception as e:
-        logger.error(f"PDF Translation Error: {e}")
-        bot.edit_message_text(f"⚠️ حدث خطأ أثناء معالجة وترجمة الملف: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
+        logger.error(f"PDF Build Error: {e}")
+        try:
+            bot.edit_message_text(f"⚠️ حدث خطأ أثناء بناء ملف الـ PDF: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
+        except:
+            pass
+            
+    finally:
+        if os.path.exists(input_pdf_path): 
+            try: os.remove(input_pdf_path)
+            except: pass
+        if os.path.exists(output_pdf_path): 
+            try: os.remove(output_pdf_path)
+            except: pass
 
 # ================= التفاعل مع الصور والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo'])
@@ -838,6 +882,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث البوت بالكامل مع ميزة قراءة وترجمة ملفات PDF لغاية 50 صفحة بنجاح!")
+    logger.info("تم تحديث البوت بالكامل مع ميزة قراءة وترجمة ملفات PDF وإعادة بنائها بملف جديد بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
