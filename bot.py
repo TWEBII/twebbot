@@ -13,6 +13,10 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_media, get_video_info
 import games  # استدعاء ملف الألعاب الخارجي
 
+# المكتبات الجديدة المضافة للجدولة والتقويم الهجري
+from apscheduler.schedulers.background import BackgroundScheduler
+from hijri_converter import Gregorian
+
 # ================= إعدادات التسجيل (Logging) =================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -223,6 +227,110 @@ def get_ai_reply(message, user_message):
     except Exception as e:
         logger.error(f"Groq API Error: {e}")
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
+
+# ================= نظام الجدولة والأذكار والمناسبات الدينية =================
+def send_daily_dhikr_job():
+    """ترسل ذكراً عشوائياً يومياً لكل المستخدمين المسجلين"""
+    db = load_db()
+    users = db.get("users", [])
+    if not users:
+        return
+
+    if not os.path.exists("dhikr.json"):
+        logger.warning("ملف dhikr.json غير موجود، لا يمكن إرسال الذكر اليومي.")
+        return
+
+    try:
+        with open("dhikr.json", "r", encoding="utf-8") as f:
+            dhikr_list = json.load(f)
+        
+        if not dhikr_list:
+            return
+
+        random_dhikr = random.choice(dhikr_list)
+        msg_text = f"✨ **ذكر اليوم الفاضل** ✨\n\n{random_dhikr.get('text')}\n\n📖 المصدر: {random_dhikr.get('category', 'حصن المسلم')}"
+        
+        for u_id in users:
+            try:
+                bot.send_message(u_id, msg_text)
+                time.sleep(0.05)  # لتفادي الـ Flood
+            except Exception:
+                continue
+    except Exception as e:
+        logger.error(f"Error in send_daily_dhikr_job: {e}")
+
+def check_islamic_occasions_job():
+    """تفحص المناسبات الشرعية والأيام البيض وتنبّه المستخدمين بها، وتذكر بيوم الجمعة"""
+    db = load_db()
+    users = db.get("users", [])
+    if not users:
+        return
+
+    tz = pytz.timezone('Asia/Baghdad')
+    now = datetime.datetime.now(tz)
+    
+    # 1. التذكير بيوم الجمعة (الصلاة على النبي ﷺ)
+    if now.weekday() == 4:  # رقم 4 يعني يوم الجمعة في بايثون
+        friday_text = (
+            "✨ **تذكير يوم الجمعة** ✨\n\n"
+            "قال ﷺ: (إن من أفضل أيامكم يوم الجمعة، فأكثروا علي من الصلاة فيه، فإن صلاتكم معروضة علي)\n\n"
+            "اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ 🤍"
+        )
+        for u_id in users:
+            try:
+                bot.send_message(u_id, friday_text)
+                time.sleep(0.05)
+            except Exception:
+                continue
+
+    # 2. فحص المناسبات والأيام البيض بالتقويم الهجري
+    try:
+        today_hijri = Gregorian.today().to_hijri()
+        h_day = today_hijri.day
+        h_month = today_hijri.month
+        
+        islamic_msg = ""
+        
+        # الأيام البيض (13، 14، 15) مع استثناء ذي الحجة ليوم 13 لأنه من أيام التشريق المحرم صومها
+        if h_day in [13, 14, 15] and h_month != 12:
+            islamic_msg = "💡 **تذكير بالأيام البيض**\n\nنحن الآن في الأيام البيض الفاضلة لشهر هجري (١٣، ١٤، ١٥). طوبى لمن نوى الصيام ورفع عمله صالحاً لله."
+        elif h_day in [14, 15] and h_month == 12:
+            islamic_msg = "💡 **تذكير بالأيام البيض**\n\nنحن الآن في الأيام البيض الفاضلة لشهر ذي الحجة. طوبى لمن نوى الصيام."
+            
+        # يوم عرفة (9 ذي الحجة)
+        elif h_month == 12 and h_day == 9:
+            islamic_msg = "🕌 **تذكير بيوم عرفة العظيم**\n\nاليوم هو يوم عرفة المشهود، صيام هذا اليوم يكفر السنة الماضية والسنة الباقية كما ثبت في الحديث الصحيح. أكثروا من الدعاء والاستغفار."
+            
+        # عشر ذي الحجة (من 1 إلى 9)
+        elif h_month == 12 and (1 <= h_day <= 8):
+            islamic_msg = "🌱 **تذكير بعشر ذي الحجة**\n\nنحن في أيام عشر ذي الحجة المباركة، أفضل أيام الدنيا عند الله، أحيوا سنة التكبير والتهليل والتحميد والعمل الصالح."
+            
+        # تاسوعاء وعاشوراء (9 و 10 محرم)
+        elif h_month == 1 and h_day in [9, 10]:
+            islamic_msg = "🕌 **تذكير بصيام عاشوراء وتاسوعاء**\n\nنحن في أيام شهر الله المحرم، صيام يوم عاشوراء يكفر ذنوب سنة مضت كما أخبر المصطفى ﷺ."
+
+        if islamic_msg:
+            for u_id in users:
+                try:
+                    bot.send_message(u_id, islamic_msg)
+                    time.sleep(0.05)
+                except Exception:
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"Error converting to Hijri calendar: {e}")
+
+# ضبط وتشغيل الميقاتي التلقائي في الخلفية
+baghdad_tz = pytz.timezone('Asia/Baghdad')
+scheduler = BackgroundScheduler(timezone=baghdad_tz)
+
+# إرسال ذكر الصباح اليومي في تمام الساعة 8:00 صباحاً
+scheduler.add_job(send_daily_dhikr_job, 'cron', hour=8, minute=0)
+
+# فحص وإرسال التذكيرات والمناسبات الدينية ويوم الجمعة الساعة 9:00 صباحاً
+scheduler.add_job(check_islamic_occasions_job, 'cron', hour=9, minute=0)
+
+scheduler.start()
 
 # ================= معالجة الأوامر والرسائل الأساسية =================
 @bot.message_handler(commands=['ping'])
@@ -754,6 +862,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
+    logger.info("تم تحديث البوت بالكامل، وتفعيل جدولة حصن المسلم والمناسبات بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
