@@ -8,3 +8,5 @@ Pillow
 requests
 PyPDF2
 reportlab
+arabic-reshaper
+python-bidi
