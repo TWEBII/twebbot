@@ -7,10 +7,18 @@ import pytz
 import re
 import uuid
 import time
+import logging
 from groq import Groq
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_media, get_video_info
 import games  # استدعاء ملف الألعاب الخارجي
+
+# ================= إعدادات التسجيل (Logging) =================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # ================= الإعدادات الأساسية =================
 TOKEN = "8898698558:AAEDmDHjT4g6h3eLRvs5uWCnrT0BDOosOjQ" 
@@ -39,10 +47,11 @@ STICKER_SETS = [
 
 try:
     bot.set_my_commands([
-        BotCommand("/start", "رسالة البدء")
+        BotCommand("/start", "رسالة البدء"),
+        BotCommand("/ping", "فحص سرعة البوت (للمطور)")
     ])
 except Exception as e:
-    print(f"Error setting commands: {e}")
+    logger.error(f"Error setting commands: {e}")
 
 # ================= إدارة قاعدة البيانات =================
 def load_db():
@@ -53,7 +62,8 @@ def load_db():
                 if "login_notice" not in data: data["login_notice"] = True
                 if "notified_users" not in data: data["notified_users"] = []
                 return data
-        except:
+        except Exception as e:
+            logger.error(f"Error loading DB: {e}")
             pass
     return {
         "users": [], "banned_users": [], "notified_users": [],
@@ -63,8 +73,11 @@ def load_db():
     }
 
 def save_db(db):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=4)
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving DB: {e}")
 
 # ================= لوحات تحكم الإدارة =================
 def get_admin_keyboard():
@@ -145,7 +158,7 @@ def edit_user_interface(call, text, markup):
             else:
                 bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
         except Exception as ex:
-            print(f"Interface Edit Error: {ex}")
+            logger.error(f"Interface Edit Error: {ex}")
 
 # ================= دوال الذكاء الاصطناعي والمساعدات =================
 def send_random_sticker(chat_id):
@@ -155,8 +168,8 @@ def send_random_sticker(chat_id):
         if sticker_set.stickers:
             sticker = random.choice(sticker_set.stickers)
             bot.send_sticker(chat_id, sticker.file_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to send sticker: {e}")
 
 def clean_ai_response(text):
     if not text:
@@ -207,10 +220,20 @@ def get_ai_reply(message, user_message):
         )
         raw_reply = response.choices[0].message.content
         return clean_ai_response(raw_reply)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Groq API Error: {e}")
         return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً. يرجى المحاولة لاحقاً."
 
 # ================= معالجة الأوامر والرسائل الأساسية =================
+@bot.message_handler(commands=['ping'])
+def ping_command(message):
+    if str(message.from_user.id) == ADMIN_ID or message.from_user.username == "TWEBii":
+        start_time = time.time()
+        msg = bot.reply_to(message, "🏓 جاري الفحص...")
+        end_time = time.time()
+        ping_time = round((end_time - start_time) * 1000)
+        bot.edit_message_text(f"🏓 **Pong!**\n⚡️ زمن الاستجابة: `{ping_time}ms`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+
 @bot.message_handler(commands=['start'])
 def start_command(message):
     db = load_db()
@@ -246,7 +269,8 @@ def start_command(message):
                     f"🆔 الأيدي: `{user_id}`"
                 )
                 bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
-            except: pass
+            except Exception as e: 
+                logger.error(f"Failed to send login notice: {e}")
 
     if str_user_id == ADMIN_ID or message.from_user.username == "TWEBii":
         stats_text = (
@@ -381,7 +405,6 @@ def handle_download_callback(call):
     last_edit_time.pop(progress_msg.message_id, None)
 
     if not file_path:
-        # الكليشة المرتبة التي طلبها أحمد عند تجاوز الحجم الحد الأقصى أو فشل التحميل
         error_message = (
             "❌ **عذراً، تعذر إرسال الفيديو!**\n\n"
             "> حجم الفيديو يتجاوز حد تليجرام المسموح (50 ميجابايت)، وحتى بعد محاولة تحميله بأقل دقة ممكنة، لا يزال الملف كبيراً جداً.\n\n"
@@ -423,7 +446,7 @@ def handle_download_callback(call):
             bot.delete_message(call.message.chat.id, progress_msg.message_id)
             
         except Exception as e:
-            print(f"Telegram Send Error: {e}")
+            logger.error(f"Telegram Send Error: {e}")
             bot.edit_message_text(
                 chat_id=call.message.chat.id, 
                 message_id=progress_msg.message_id, 
@@ -432,7 +455,7 @@ def handle_download_callback(call):
         finally:
             if os.path.exists(file_path):
                 try: os.remove(file_path)
-                except: pass
+                except Exception as e: logger.error(f"Failed to remove file: {e}")
 
 # ================= التفاعل مع الملفات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -625,7 +648,8 @@ def process_add_start_button(message):
         db["custom_buttons"].append({"text": text.strip(), "url": url.strip()})
         save_db(db)
         bot.reply_to(message, "✅ تم إضافة الزر.")
-    except:
+    except Exception as e:
+        logger.error(f"Button add error: {e}")
         bot.reply_to(message, "⚠️ صيغة الإدخال خاطئة! `اسم الزر - الرابط`")
 
 def process_edit_start_text(message):
@@ -644,7 +668,8 @@ def process_broadcast(message):
         try:
             bot.copy_message(user_id, message.chat.id, message.message_id)
             success += 1
-        except: pass
+        except Exception:
+            pass
     bot.send_message(message.chat.id, f"📢 تمت الإذاعة لـ {success} مستخدم.")
 
 def process_ban_action(message, mode_ban=True):
@@ -714,7 +739,8 @@ def process_user_support_message(message, today):
     try:
         bot.send_message(ADMIN_ID, report_text)
         bot.reply_to(message, "✅ تم إرسال البلاغ للمطور بنجاح.")
-    except:
+    except Exception as e:
+        logger.error(f"Support report error: {e}")
         bot.reply_to(message, "⚠️ فشل الإرسال حالياً.")
 
 def process_user_instructions(message):
@@ -728,6 +754,7 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
+    logger.info("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
     bot.remove_webhook()
-    bot.infinity_polling()
+    # إضافة معاملات متقدمة لتجنب إيقاف البوت عند حدوث أخطاء في الاتصال
+    bot.infinity_polling(timeout=60, long_polling_timeout=30, request_timeout=60)
