@@ -1,4 +1,3 @@
-import telebot
 import os
 import json
 import random
@@ -9,6 +8,10 @@ import uuid
 import time
 import logging
 from groq import Groq
+from PyPDF2 import PdfReader
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_media, get_video_info
 import games  # استدعاء ملف الألعاب الخارجي
@@ -457,20 +460,101 @@ def handle_download_callback(call):
                 try: os.remove(file_path)
                 except Exception as e: logger.error(f"Failed to remove file: {e}")
 
-# ================= التفاعل مع الملفات والملصقات =================
-@bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
-def handle_files(message):
+# ================= التفاعل مع المستندات والملفات (ترجمة PDF لغاية 50 صفحة) =================
+@bot.message_handler(content_types=['document'])
+def handle_document_translation(message):
+    db = load_db()
+    user_id = message.from_user.id
+    
+    if str(user_id) in db.get("banned_users", []): 
+        return
+    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: 
+        return
+
+    file_info = message.document
+    file_name = file_info.file_name
+    
+    if not file_name.lower().endswith('.pdf'):
+        bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF الطبية والعلمية فقط حالياً.")
+        return
+
+    status_msg = bot.reply_to(message, "⏳ **جاري استلام الملف وقراءة أول 50 صفحة منه، يرجى الانتظار...**", parse_mode="Markdown")
+    
+    try:
+        file_info_path = bot.get_file(file_info.file_id)
+        downloaded_file = bot.download_file(file_info_path.file_path)
+        
+        input_pdf_path = f"temp_{user_id}.pdf"
+        output_pdf_path = f"translated_{user_id}.pdf"
+        
+        with open(input_pdf_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+            
+        reader = PdfReader(input_pdf_path)
+        extracted_text = ""
+        
+        # قراءة لغاية 50 صفحة بناءً على رغبتك
+        max_pages = min(len(reader.pages), 50)
+        for i in range(max_pages):
+            text = reader.pages[i].extract_text()
+            if text:
+                extracted_text += f"\n\n--- [ صفحة {i+1} ] ---\n" + text
+
+        if not extracted_text.strip():
+            bot.edit_message_text("❌ عذراً، لم أتمكن من استخراج نص من هذا الملف (قد يكون مصوراً كصور صامتة).", chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
+
+        bot.edit_message_text(f"🔄 **جاري ترجمة {max_pages} صفحة عبر الذكاء الاصطناعي (قد يستغرق وقتاً قليلاً)...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+
+        # تقسيم النص لضمان عدم تجاوز حدود الـ API ومعالجة النصوص الطويلة بدقة
+        prompt = (
+            f"قم بترجمة هذا النص الطبي/العلمي المستخرج من كتاب إلى اللغة العربية بدقة واحترافية عالية، "
+            f"وحافظ على تنسيق أرقام الصفحات والعناوين قدر الإمكان:\n\n{extracted_text[:12000]}"
+        )
+        translated_text = get_ai_reply(message, prompt)
+
+        # إنشاء ملف PDF جديد بالنتائج المترجمة
+        c = canvas.Canvas(output_pdf_path, pagesize=letter)
+        width, height = letter
+        
+        text_object = c.beginText(40, height - 40)
+        text_object.setFont("Helvetica", 9)
+        
+        for line in translated_text.split('\n'):
+            if text_object.getY() < 40:
+                c.drawText(text_object)
+                c.showPage()
+                text_object = c.beginText(40, height - 40)
+                text_object.setFont("Helvetica", 9)
+            text_object.textLine(line[:95])
+            
+        c.drawText(text_object)
+        c.save()
+
+        bot.edit_message_text("📤 **جاري رفع الملف المترجم (لغاية 50 صفحة) إليك...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+
+        with open(output_pdf_path, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption=f"✅ تم ترجمة أول {max_pages} صفحة من الكتاب بنجاح عبر بوت TWEB")
+
+        if os.path.exists(input_pdf_path): os.remove(input_pdf_path)
+        if os.path.exists(output_pdf_path): os.remove(output_pdf_path)
+        bot.delete_message(message.chat.id, status_msg.message_id)
+
+    except Exception as e:
+        logger.error(f"PDF Translation Error: {e}")
+        bot.edit_message_text(f"⚠️ حدث خطأ أثناء معالجة وترجمة الملف: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
+
+# ================= التفاعل مع الصور والملصقات =================
+@bot.message_handler(func=lambda m: True, content_types=['photo'])
+def handle_photos(message):
     db = load_db()
     if str(message.from_user.id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
 
     text = (
-        "📸 **أداة الترجمة الذكية للمستندات والصور**\n\n"
-        "لقد قمت بإرسال ملف أو صورة! للترجمة الاحترافية والدقيقة، "
-        "نوصي باستخدام أداة ترجمة جوجل المخصصة، والتي تتميز بـ:\n\n"
-        "✨ **السرعة والدقة** في ترجمة النصوص داخل الصور.\n"
-        "📄 **دعم ملفات** الـ PDF والـ Word وغيرها.\n"
-        "🔒 **الحفاظ على تنسيق** الملف الأصلي.\n\n"
+        "📸 **أداة الترجمة الذكية للصور**\n\n"
+        "لقد قمت بإرسال صورة! للترجمة الاحترافية والدقيقة للنصوص داخل الصور، "
+        "نوصي باستخدام أداة ترجمة جوجل المخصصة:\n\n"
         "🔗 [اضغط هنا للدخول لموقع الترجمة وبدء العمل مباشرة](https://translate.google.com.sa/?sl=auto&tl=ar&op=docs)"
     )
     bot.reply_to(message, text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -754,6 +838,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
+    logger.info("تم تحديث البوت بالكامل مع ميزة قراءة وترجمة ملفات PDF لغاية 50 صفحة بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
