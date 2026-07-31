@@ -324,7 +324,7 @@ def handle_social_links(message):
         f"⏱ **المدة:** {duration}\n"
         f"👁 **المشاهدات:** {views}\n"
         f"👤 **القناة:** {uploader}\n\n"
-        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 45MB):**"
+        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 50MB):**"
     )
     
     short_id = str(uuid.uuid4())[:8]
@@ -337,7 +337,6 @@ def handle_social_links(message):
     )
     markup.row(InlineKeyboardButton("« رجوع للقائمة الرئيسية 🔙", callback_data="user_back_home"))
     
-    # تم إزالة parse_mode="Markdown" لمنع أخطاء الروابط الطويلة وتنسيقات اليوتيوب
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
                           reply_markup=markup)
 
@@ -381,19 +380,20 @@ def handle_download_callback(call):
     file_path = download_media(url, media_type=media_type, progress_callback=progress_updater)
     last_edit_time.pop(progress_msg.message_id, None)
 
-    if file_path == "TOO_LARGE":
+    if not file_path:
+        # الكليشة المرتبة التي طلبها أحمد عند تجاوز الحجم الحد الأقصى أو فشل التحميل
+        error_message = (
+            "❌ **عذراً، تعذر إرسال الفيديو!**\n\n"
+            "> حجم الفيديو يتجاوز حد تليجرام المسموح (50 ميجابايت)، وحتى بعد محاولة تحميله بأقل دقة ممكنة، لا يزال الملف كبيراً جداً.\n\n"
+            "💡 **نصيحة:** حاول تحميل مقطع أقصر مدة ليناسب الحد المسموح."
+        )
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
             message_id=progress_msg.message_id, 
-            text="❌ عذراً، حجم هذا الملف يتجاوز الحد المسموح به (45 ميجابايت). حاول مع مقطع أقصر."
+            text=error_message,
+            parse_mode="Markdown"
         )
-    elif file_path == "UNAVAILABLE":
-        bot.edit_message_text(
-            chat_id=call.message.chat.id, 
-            message_id=progress_msg.message_id, 
-            text="❌ عذراً، هذا الفيديو غير متاح (قد يكون محذوفاً أو مقيداً)."
-        )
-    elif file_path and os.path.exists(file_path):
+    elif os.path.exists(file_path):
         try:
             bot.edit_message_text(
                 text="✅ **اكتمل التحميل، جاري الرفع لتيليجرام...**", 
@@ -433,12 +433,6 @@ def handle_download_callback(call):
             if os.path.exists(file_path):
                 try: os.remove(file_path)
                 except: pass
-    else:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id, 
-            message_id=progress_msg.message_id, 
-            text="❌ عذراً، فشل التحميل. تأكد من أن الرابط يعمل بشكل صحيح."
-        )
 
 # ================= التفاعل مع الملفات والملصقات =================
 @bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
@@ -520,7 +514,7 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 45 ميجابايت):\n"
+            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 50 ميجابايت):\n"
             "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
@@ -734,6 +728,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    print("تم تحديث البوت بالكامل، وحل مشكلة الـ Markdown وإرسال الروابط بنجاح!")
+    print("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
