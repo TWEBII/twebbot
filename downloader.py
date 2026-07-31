@@ -10,7 +10,7 @@ def resolve_url(url):
         try:
             req = urllib.request.Request(
                 url,
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.url
@@ -71,32 +71,29 @@ def download_media(url, media_type='video', progress_callback=None):
     }
 
     if is_youtube:
-        # التعديل الجديد لتجاوز الحماية عبر مشغلات الويب الحديثة
+        # استخدام مشغل الأندرويد لتجاوز حماية البوتات تماماً بدون كوكيز
         common_opts.update({
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['web', 'web_creator']
+                    'player_client': ['android', 'web']
                 }
             },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
+                'User-Agent': 'com.google.android.youtube/19.29.35 (Linux; U; Android 14; 23117RK6CB) gzip',
             }
         })
     elif is_tiktok:
         common_opts.update({
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
                 'Referer': 'https://www.tiktok.com/',
             }
         })
     elif is_insta:
         common_opts.update({
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Referer': 'https://www.instagram.com/',
             }
         })
