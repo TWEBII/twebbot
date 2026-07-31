@@ -1,3 +1,4 @@
+import telebot
 import os
 import json
 import random
@@ -8,14 +9,6 @@ import uuid
 import time
 import logging
 from groq import Groq
-import arabic_reshaper
-from bidi.algorithm import get_display
-from PyPDF2 import PdfReader
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from downloader import download_media, get_video_info
 import games  # استدعاء ملف الألعاب الخارجي
@@ -355,7 +348,7 @@ def handle_social_links(message):
         f"⏱ **المدة:** {duration}\n"
         f"👁 **المشاهدات:** {views}\n"
         f"👤 **القناة:** {uploader}\n\n"
-        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 20MB لتيليجرام):**"
+        f"👇 **اختر الصيغة المطلوبة للتحميل (الحد الأقصى 50MB):**"
     )
     
     short_id = str(uuid.uuid4())[:8]
@@ -371,7 +364,7 @@ def handle_social_links(message):
     bot.edit_message_text(text, chat_id=message.chat.id, message_id=status_msg.message_id, 
                           reply_markup=markup)
 
-# ================= معالج أزرار التحميل =================
+# ================= معالج أزرار التحميل (المُحدث والآمن) =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_download_callback(call):
     data_parts = call.data.split("|", 1)
@@ -413,9 +406,9 @@ def handle_download_callback(call):
 
     if not file_path:
         error_message = (
-            "❌ **عذراً، تعذر إرسال الملف!**\n\n"
-            "> حجم الملف يتجاوز الحد الأقصى المسموح لرفع بوتات تليجرام (20 ميجابايت).\n\n"
-            "💡 **نصيحة:** حاول تحميل مقطع أقصر مدة أو حجم ليناسب الحد المسموح."
+            "❌ **عذراً، تعذر إرسال الفيديو!**\n\n"
+            "> حجم الفيديو يتجاوز حد تليجرام المسموح (50 ميجابايت)، وحتى بعد محاولة تحميله بأقل دقة ممكنة، لا يزال الملف كبيراً جداً.\n\n"
+            "💡 **نصيحة:** حاول تحميل مقطع أقصر مدة ليناسب الحد المسموح."
         )
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
@@ -424,24 +417,6 @@ def handle_download_callback(call):
             parse_mode="Markdown"
         )
     elif os.path.exists(file_path):
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        if file_size_mb > 20:
-            if os.path.exists(file_path):
-                try: os.remove(file_path)
-                except: pass
-            error_message = (
-                "❌ **عذراً، تعذر إرسال الملف!**\n\n"
-                f"> حجم الملف النهائي ({file_size_mb:.1f} ميجابايت) يتجاوز حد تيليجرام البالغ 20 ميجابايت.\n\n"
-                "💡 **نصيحة:** حاول تحميل ملف أصغر أو مقطع أقصر."
-            )
-            bot.edit_message_text(
-                chat_id=call.message.chat.id, 
-                message_id=progress_msg.message_id, 
-                text=error_message,
-                parse_mode="Markdown"
-            )
-            return
-
         try:
             bot.edit_message_text(
                 text="✅ **اكتمل التحميل، جاري الرفع لتيليجرام...**", 
@@ -463,7 +438,7 @@ def handle_download_callback(call):
                 else:
                     bot.send_audio(
                         call.message.chat.id, f,
-                        caption="🎵 الملف الصوتي عبر بوت التنزيل",
+                        caption="🎵 الملف الصوتي عبر بوت TWEB",
                         reply_markup=back_markup
                     )
             
@@ -482,176 +457,20 @@ def handle_download_callback(call):
                 try: os.remove(file_path)
                 except Exception as e: logger.error(f"Failed to remove file: {e}")
 
-# ================= دالة معالجة وتصحيح الحروف العربية =================
-def fix_arabic(text):
-    try:
-        reshaped_text = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped_text)
-        return bidi_text
-    except:
-        return text
-
-# ================= التفاعل مع المستندات والملفات (ترجمة PDF وتوليد ملف مرتب) =================
-@bot.message_handler(content_types=['document'])
-def handle_document_translation(message):
-    db = load_db()
-    user_id = message.from_user.id
-    
-    if str(user_id) in db.get("banned_users", []): 
-        return
-    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: 
-        return
-
-    file_info = message.document
-    file_name = file_info.file_name
-    
-    if not file_name.lower().endswith('.pdf'):
-        bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF فقط حالياً.")
-        return
-
-    if file_info.file_size and file_info.file_size > 20 * 1024 * 1024:
-        bot.reply_to(message, f"❌ عذراً، حجم الملف الكبير ({file_info.file_size / (1024*1024):.1f} MB) يتجاوز حد تيليجرام المسموح للبوتات (20 MB).")
-        return
-
-    status_msg = bot.reply_to(message, "⏳ **جاري قراءة الملف واستخراج النصوص، يرجى الانتظار...**", parse_mode="Markdown")
-    
-    input_pdf_path = f"temp_{user_id}.pdf"
-    output_pdf_path = f"Translated_{file_name}"
-    
-    try:
-        file_info_path = bot.get_file(file_info.file_id)
-        downloaded_file = bot.download_file(file_info_path.file_path)
-        
-        with open(input_pdf_path, 'wb') as new_file:
-            new_file.write(downloaded_file)
-            
-        reader = PdfReader(input_pdf_path)
-        max_pages = min(len(reader.pages), 50) 
-        
-        bot.edit_message_text(f"🔄 **جاري ترجمة صفحات المستند وبناء ملف الـ PDF ({max_pages} صفحة)...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
-
-        c = canvas.Canvas(output_pdf_path, pagesize=letter)
-        
-        font_registered = False
-        font_paths = ["Tajawal-Regular.ttf", "arial.ttf", "DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
-        for fpath in font_paths:
-            if os.path.exists(fpath):
-                try:
-                    pdfmetrics.registerFont(TTFont('ArabicFont', fpath))
-                    font_registered = True
-                    break
-                except:
-                    continue
-
-        width, height = letter
-        
-        for i in range(max_pages):
-            page = reader.pages[i]
-            extracted_text = page.extract_text()
-            
-            c.saveState()
-            if font_registered:
-                c.setFont('ArabicFont', 11)
-            else:
-                c.setFont('Helvetica', 10)
-                
-            translated_content = ""
-            if extracted_text and extracted_text.strip():
-                # إرسال أجزاء من النص للذكاء الاصطناعي لترجمتها بدقة
-                prompt = f"قم بترجمة هذا النص المستخرج من ملف PDF إلى اللغة العربية الفصحى بدقة واحترافية عالية، واجعل التنسيق مرتباً:\n\n{extracted_text}"
-                translated_content = get_ai_reply(message, prompt)
-            else:
-                translated_content = "ملاحظة: هذه الصفحة تبدو مصورة (Scan) أو لا تحتوي على طبقة نص رقمية قابلة للاستخراج المباشر."
-
-            y_position = height - 50
-            
-            # رأس الصفحة
-            header_text = fix_arabic(f"--- صفحة رقم {i+1} (مترجمة بواسطة بوت TWEB) ---")
-            c.drawString(50, y_position, header_text)
-            y_position -= 35
-            
-            # تقسيم وترتيب الأسطر وتفادي أي أخطاء قوائم فارغة
-            if translated_content:
-                lines = translated_content.split('\n')
-                for line in lines:
-                    words = line.split(' ') if line else []
-                    current_line = ""
-                    for word in words:
-                        test_line = f"{current_line} {word}".strip()
-                        if len(test_line) > 75: 
-                            if y_position < 50:
-                                c.showPage()
-                                if font_registered: c.setFont('ArabicFont', 11)
-                                else: c.setFont('Helvetica', 10)
-                                y_position = height - 50
-                            
-                            processed_line = fix_arabic(current_line)
-                            c.drawString(50, y_position, processed_line)
-                            y_position -= 20
-                            current_line = word
-                        else:
-                            current_line = test_line
-                    
-                    if current_line:
-                        if y_position < 50:
-                            c.showPage()
-                            if font_registered: c.setFont('ArabicFont', 11)
-                            else: c.setFont('Helvetica', 10)
-                            y_position = height - 50
-                        
-                        processed_line = fix_arabic(current_line)
-                        c.drawString(50, y_position, processed_line)
-                        y_position -= 22
-                
-            c.showPage()
-            c.restoreState()
-            
-        c.save()
-
-        if not os.path.exists(output_pdf_path) or os.path.getsize(output_pdf_path) == 0:
-            raise Exception("فشل حفظ ملف الـ PDF الناتج أو أن الملف فارغ.")
-
-        output_size_mb = os.path.getsize(output_pdf_path) / (1024 * 1024)
-        if output_size_mb > 20:
-            bot.edit_message_text(f"⚠️ الملف الناتج كبير جداً ({output_size_mb:.1f} MB).", chat_id=message.chat.id, message_id=status_msg.message_id)
-            return
-
-        bot.edit_message_text("📤 **اكتملت معالجة ملف الـ PDF، جاري إرساله...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
-
-        with open(output_pdf_path, 'rb') as f:
-            bot.send_document(
-                message.chat.id, f, 
-                caption=f"✅ تم معالجة وترجمة ملف ({file_name}) بنجاح."
-            )
-
-        bot.delete_message(message.chat.id, status_msg.message_id)
-
-    except Exception as e:
-        logger.error(f"PDF Build Error: {e}")
-        try:
-            bot.edit_message_text(f"⚠️ حدث خطأ أثناء بناء ملف الـ PDF: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
-        except:
-            pass
-            
-    finally:
-        if os.path.exists(input_pdf_path): 
-            try: os.remove(input_pdf_path)
-            except: pass
-        if os.path.exists(output_pdf_path): 
-            try: os.remove(output_pdf_path)
-            except: pass
-
-# ================= التفاعل مع الصور والملصقات =================
-@bot.message_handler(func=lambda m: True, content_types=['photo'])
-def handle_photos(message):
+# ================= التفاعل مع الملفات والملصقات =================
+@bot.message_handler(func=lambda m: True, content_types=['photo', 'document'])
+def handle_files(message):
     db = load_db()
     if str(message.from_user.id) in db.get("banned_users", []): return
     if not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID: return
 
     text = (
-        "📸 **أداة الترجمة الذكية للصور**\n\n"
-        "لقد قمت بإرسال صورة! للترجمة الاحترافية والدقيقة للنصوص داخل الصور، "
-        "نوصي باستخدام أداة ترجمة جوجل المخصصة:\n\n"
+        "📸 **أداة الترجمة الذكية للمستندات والصور**\n\n"
+        "لقد قمت بإرسال ملف أو صورة! للترجمة الاحترافية والدقيقة، "
+        "نوصي باستخدام أداة ترجمة جوجل المخصصة، والتي تتميز بـ:\n\n"
+        "✨ **السرعة والدقة** في ترجمة النصوص داخل الصور.\n"
+        "📄 **دعم ملفات** الـ PDF والـ Word وغيرها.\n"
+        "🔒 **الحفاظ على تنسيق** الملف الأصلي.\n\n"
         "🔗 [اضغط هنا للدخول لموقع الترجمة وبدء العمل مباشرة](https://translate.google.com.sa/?sl=auto&tl=ar&op=docs)"
     )
     bot.reply_to(message, text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -706,22 +525,24 @@ def callback_handler(call):
             bot.send_message(user_id, "⚠️ عذراً عزيزي، لقد قمت بإرسال رسالة دعم اليوم بالفعل. يُسمح برسالة واحدة يومياً.")
             return
             
-        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠\n\nيرجى كتابة وإرسال تفاصيل الخطأ أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيهها لمالك البوت.")
+        msg = bot.send_message(user_id, "أهلاً بك في قسم الدعم الفني. 🛠\n\nيرجى كتابة وإرسال تفاصيل الخطأ أو التحديث الذي تقترحه في رسالة واحدة واضحة. سيتم توجيهها لمالك البوت (بلاغ واحد يومياً).")
         bot.register_next_step_handler(msg, process_user_support_message, today)
         
     elif call.data == "user_menu_guide":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك، وسيقوم بتطبيقها فوراً.")
+        msg = bot.send_message(user_id, "دليل الاستخدام المطور. ❓\n\nأرسل رسالة توضح الطريقة التي تفضل أن يتعامل بها البوت معك (مثال: أجبني باختصار), وسيقوم بتطبيقها فوراً.")
         bot.register_next_step_handler(msg, process_user_instructions)
 
     elif call.data == "user_menu_download_guide":
         bot.answer_callback_query(call.id)
         dl_text = (
             "📥 **قسم التحميل من السوشيال ميديا**\n\n"
-            "فقط قم بـ **إرسال الرابط مباشرة** هنا في المحادثة (تيك توك، يوتيوب، انستغرام، وغيرها) وسيقوم البوت بتحميله وإرساله إليك فوراً."
+            "لكي تقوم بتحميل أي فيديو (الحد الأقصى 50 ميجابايت):\n"
+            "فقط قم بـ **إرسال الرابط مباشرة** (من تيك توك، يوتيوب، انستغرام، فيسبوك، وغيرها) هنا في المحادثة، وسيقوم البوت بتحميله وإرساله إليك فوراً وبأعلى جودة مناسبة!"
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
+    # أوامر الإدارة
     if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
             stats_text = (
@@ -842,7 +663,7 @@ def process_broadcast(message):
     if str(message.from_user.id) != ADMIN_ID: return
     db = load_db()
     success = 0
-    bot.reply_to(message, "جاري الإذاعةة...")
+    bot.reply_to(message, "جاري الإذاعة...")
     for user_id in db["users"]:
         try:
             bot.copy_message(user_id, message.chat.id, message.message_id)
@@ -933,6 +754,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث وتصحيح الكود بالكامل لمنع أخطاء الـ PDF وضمان عمل البوت بثبات!")
+    logger.info("تم تحديث البوت بالكامل، وربط كليشة تجاوز الحد الأقصى (50MB) بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
