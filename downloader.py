@@ -64,7 +64,7 @@ def download_media(url, media_type='video', progress_callback=None):
     if media_type == 'audio':
         ydl_opts = {
             **common_opts,
-            'format': 'bestaudio/best',
+            'format': 'bestaudio',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -73,10 +73,10 @@ def download_media(url, media_type='video', progress_callback=None):
             }],
         }
     else:
-        # صيغة مرنة جداً تتجنب خطأ Requested format عبر اختيار أفضل فيديو مدمج أو دقة مقبولة
+        # اختيار أبسط وأضمن صيغة لـ yt-dlp تتجنب مشاكل الـ formats تماماً
         ydl_opts = {
             **common_opts,
-            'format': 'best[ext=mp4]/best[height<=720]/best',
+            'format': 'best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
         }
 
@@ -92,15 +92,13 @@ def download_media(url, media_type='video', progress_callback=None):
                 base_name = os.path.splitext(filename)[0]
                 final_path = base_name + '.mp3'
             else:
-                base_name = os.path.splitext(filename)[0]
-                mp4_file = base_name + '.mp4'
-                final_path = mp4_file if os.path.exists(mp4_file) else filename
+                final_path = filename
             
             if os.path.exists(final_path):
                 file_size = os.path.getsize(final_path)
                 if file_size > max_size_bytes:
                     os.remove(final_path)
-                    print(f"File size ({file_size} bytes) exceeds 50MB limit.")
+                    print(f"File size exceeds 50MB limit.")
                     return None
                 return final_path
                 
