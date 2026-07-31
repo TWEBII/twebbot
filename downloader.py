@@ -1,6 +1,7 @@
 import yt_dlp
 import os
 import urllib.request
+import json
 
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
@@ -10,7 +11,7 @@ def resolve_url(url):
         try:
             req = urllib.request.Request(
                 url,
-                headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36'}
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.url
@@ -46,7 +47,6 @@ def get_video_info(url):
 
 def download_media(url, media_type='video', progress_callback=None):
     max_size_bytes = 45 * 1024 * 1024  # 45 ميجابايت
-
     real_url = resolve_url(url)
 
     def hook(d):
@@ -61,6 +61,41 @@ def download_media(url, media_type='video', progress_callback=None):
     is_insta = 'instagram.com' in real_url
     is_youtube = 'youtube.com' in real_url or 'youtu.be' in real_url
 
+    # إذا كان الرابط يوتيوب، سنستخدم الطريقة البديلة المباشرة لتجاوز حماية السيرفرات نهائياً
+    if is_youtube:
+        try:
+            # استخدام واجهة سحب سريعة ومباشرة لفيديوهات ويوتيوب والـ Shorts
+            api_url = f"https://co.wuk.sh/api/json"
+            data = json.dumps({
+                "url": real_url,
+                "isAudioOnly": True if media_type == 'audio' else False
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(
+                api_url,
+                data=data,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            )
+            
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                if 'url' in res_data:
+                    download_url = res_data['url']
+                    ext = 'mp3' if media_type == 'audio' else 'mp4'
+                    file_path = f"downloads/youtube_media.{ext}"
+                    
+                    # تحميل الملف مباشرة وبدون قيود
+                    urllib.request.urlretrieve(download_url, file_path)
+                    if os.path.exists(file_path):
+                        return file_path
+        except Exception as e:
+            print(f"Alternative API Error: {e}")
+
+    # باقي المنصات (تيك توك وإنستغرام) تعمل بشكل طبيعي عبر yt-dlp
     common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
@@ -70,54 +105,27 @@ def download_media(url, media_type='video', progress_callback=None):
         'socket_timeout': 30,
     }
 
-    if is_youtube:
-        # استخدام مشغل الأندرويد لتجاوز حماية البوتات تماماً بدون كوكيز
-        common_opts.update({
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web']
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'com.google.android.youtube/19.29.35 (Linux; U; Android 14; 23117RK6CB) gzip',
-            }
-        })
-    elif is_tiktok:
+    if is_tiktok:
         common_opts.update({
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://www.tiktok.com/',
             }
         })
     elif is_insta:
         common_opts.update({
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Referer': 'https://www.instagram.com/',
             }
         })
 
-    if is_tiktok or is_insta:
-        ydl_opts = {
-            **common_opts,
-            'format': 'best[filesize<=45M]/best',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
-        }
-    else:
-        if media_type == 'video':
-            ydl_opts = {
-                **common_opts,
-                'format': 'best[filesize<=45M]/bestvideo+bestaudio/best',
-                'outtmpl': 'downloads/%(id)s.%(ext)s',
-                'merge_output_format': 'mp4',
-            }
-        else: 
-            ydl_opts = {
-                **common_opts,
-                'format': 'bestaudio/best',
-                'outtmpl': 'downloads/%(id)s.%(ext)s',
-            }
+    ydl_opts = {
+        **common_opts,
+        'format': 'best[filesize<=45M]/best',
+        'outtmpl': 'downloads/%(id)s.%(ext)s',
+    }
 
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
@@ -126,26 +134,11 @@ def download_media(url, media_type='video', progress_callback=None):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
-            
-            if media_type == 'audio':
-                base_name = os.path.splitext(filename)[0]
-                for ext in ['.mp3', '.m4a', '.webm', '.aac', '.opus', '.mp4']:
-                    candidate = base_name + ext
-                    if os.path.exists(candidate):
-                        return candidate
-                
-                video_id = info.get('id', '')
-                for f in os.listdir('downloads'):
-                    if str(video_id) in f:
-                        return os.path.join('downloads', f)
-                return filename
-            else:
-                base_name = os.path.splitext(filename)[0]
-                mp4_file = base_name + '.mp4'
-                if os.path.exists(mp4_file):
-                    return mp4_file
-                return filename
-            
+            base_name = os.path.splitext(filename)[0]
+            mp4_file = base_name + '.mp4'
+            if os.path.exists(mp4_file):
+                return mp4_file
+            return filename
     except Exception as e:
         print(f"Download Error: {e}")
         return None
