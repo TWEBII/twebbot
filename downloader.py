@@ -1,7 +1,6 @@
 import yt_dlp
 import os
 import urllib.request
-import json
 
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
@@ -21,7 +20,6 @@ def resolve_url(url):
 
 def get_video_info(url):
     resolved_url = resolve_url(url)
-    
     common_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -29,8 +27,6 @@ def get_video_info(url):
         'nocheckcertificate': True,
         'socket_timeout': 10,
     }
-    
-    # إضافة ملف الكوكيز إذا كان موجوداً لجلب معلومات يوتيوب بدقة
     if os.path.exists('cookies.txt'):
         common_opts['cookiefile'] = 'cookies.txt'
 
@@ -54,40 +50,17 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    is_tiktok = 'tiktok.com' in real_url
-    is_insta = 'instagram.com' in real_url
-    is_youtube = 'youtube.com' in real_url or 'youtu.be' in real_url
-
     common_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
-        'max_filesize': max_size_bytes,
         'socket_timeout': 30,
     }
 
-    # تفعيل ملف الكوكيز تلقائياً لجميع التحميلات إذا وجد في المستودع
     if os.path.exists('cookies.txt'):
         common_opts['cookiefile'] = 'cookies.txt'
 
-    if is_tiktok:
-        common_opts.update({
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.tiktok.com/',
-            }
-        })
-    elif is_insta:
-        common_opts.update({
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Referer': 'https://www.instagram.com/',
-            }
-        })
-
-    # تخصيص خيارات الصيغة بناءً على طلب الفيديو أو الصوت
     if media_type == 'audio':
         ydl_opts = {
             **common_opts,
@@ -96,13 +69,14 @@ def download_media(url, media_type='video', progress_callback=None):
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '192',
+                'preferredquality': '128',
             }],
         }
     else:
+        # صيغة مرنة جداً تتجنب خطأ Requested format عبر اختيار أفضل فيديو مدمج أو دقة مقبولة
         ydl_opts = {
             **common_opts,
-            'format': 'best[filesize<=50M]/best',
+            'format': 'best[ext=mp4]/best[height<=720]/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
         }
 
@@ -114,21 +88,23 @@ def download_media(url, media_type='video', progress_callback=None):
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # في حال تم تحويل الصوت إلى mp3
             if media_type == 'audio':
                 base_name = os.path.splitext(filename)[0]
-                mp3_file = base_name + '.mp3'
-                final_path = mp3_file if os.path.exists(mp3_file) else filename
+                final_path = base_name + '.mp3'
             else:
                 base_name = os.path.splitext(filename)[0]
                 mp4_file = base_name + '.mp4'
                 final_path = mp4_file if os.path.exists(mp4_file) else filename
             
-            if os.path.exists(final_path) and os.path.getsize(final_path) > max_size_bytes:
-                os.remove(final_path)
-                return None
+            if os.path.exists(final_path):
+                file_size = os.path.getsize(final_path)
+                if file_size > max_size_bytes:
+                    os.remove(final_path)
+                    print(f"File size ({file_size} bytes) exceeds 50MB limit.")
+                    return None
+                return final_path
                 
-            return final_path
+            return None
     except Exception as e:
         print(f"Download Error: {e}")
         return None
