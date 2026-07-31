@@ -1,41 +1,31 @@
-import yt_dlp
 import os
-import urllib.request
+import yt_dlp
 
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
 
 def resolve_url(url):
-    if 'vm.tiktok.com' in url or 'vt.tiktok.com' in url:
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                return response.url
-        except Exception as e:
-            print(f"Error resolving URL: {e}")
+    # ترك معالجة وتوجيه الروابط بالكامل لمكتبة yt-dlp مع الـ Headers المخصصة
     return url
 
 def get_video_info(url):
-    resolved_url = resolve_url(url)
     common_opts = {
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'socket_timeout': 10,
+        'socket_timeout': 15,
         'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.tiktok.com/',
         }
     }
 
     try:
         with yt_dlp.YoutubeDL(common_opts) as ydl:
-            info = ydl.extract_info(resolved_url, download=False)
+            info = ydl.extract_info(url, download=False)
             return info
     except Exception as e:
         print(f"Error fetching info: {e}")
@@ -43,7 +33,6 @@ def get_video_info(url):
 
 def download_media(url, media_type='video', progress_callback=None):
     max_size_bytes = 50 * 1024 * 1024  # 50 ميجابايت كحد أقصى لتليجرام
-    real_url = resolve_url(url)
 
     def hook(d):
         if d['status'] == 'downloading' and progress_callback:
@@ -61,8 +50,9 @@ def download_media(url, media_type='video', progress_callback=None):
         'socket_timeout': 30,
         'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.tiktok.com/',
         }
     }
 
@@ -84,7 +74,7 @@ def download_media(url, media_type='video', progress_callback=None):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(real_url, download=True)
+            info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             final_path = filename
             
