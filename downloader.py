@@ -26,9 +26,9 @@ def get_video_info(url):
         'geo_bypass': True,
         'nocheckcertificate': True,
         'socket_timeout': 10,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['mweb', 'web']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
@@ -59,28 +59,24 @@ def download_media(url, media_type='video', progress_callback=None):
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['mweb', 'web']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
 
     if media_type == 'audio':
+        # تحميل أفضل صوت متاح بصيغة جاهزة (مثل m4a) مباشرة بدون الحاجة لـ ffmpeg
         ydl_opts = {
             **common_opts,
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
         }
     else:
         ydl_opts = {
             **common_opts,
-            'format': 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b',
+            'format': 'best[filesize<50M]/bestvideo[height<=720]+bestaudio/best/worst',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'merge_output_format': 'mp4',
         }
@@ -92,14 +88,13 @@ def download_media(url, media_type='video', progress_callback=None):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(real_url, download=True)
             filename = ydl.prepare_filename(info)
+            final_path = filename
             
-            if media_type == 'audio':
-                base_name = os.path.splitext(filename)[0]
-                final_path = base_name + '.mp3'
-            else:
+            if media_type != 'audio':
                 base_name = os.path.splitext(filename)[0]
                 mp4_file = base_name + '.mp4'
-                final_path = mp4_file if os.path.exists(mp4_file) else filename
+                if os.path.exists(mp4_file):
+                    final_path = mp4_file
             
             if os.path.exists(final_path):
                 file_size = os.path.getsize(final_path)
