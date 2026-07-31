@@ -27,8 +27,6 @@ def get_video_info(url):
         'nocheckcertificate': True,
         'socket_timeout': 10,
     }
-    if os.path.exists('cookies.txt'):
-        common_opts['cookiefile'] = 'cookies.txt'
 
     try:
         with yt_dlp.YoutubeDL(common_opts) as ydl:
@@ -50,35 +48,23 @@ def download_media(url, media_type='video', progress_callback=None):
                 percent = (downloaded / total) * 100
                 progress_callback(percent)
 
-    common_opts = {
+    ydl_opts = {
         'geo_bypass': True,
         'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
+        'format': 'b / best',
+        'outtmpl': 'downloads/%(id)s.%(ext)s',
     }
 
-    if os.path.exists('cookies.txt'):
-        common_opts['cookiefile'] = 'cookies.txt'
-
     if media_type == 'audio':
-        ydl_opts = {
-            **common_opts,
-            'format': 'bestaudio',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',
-            }],
-        }
-    else:
-        # اختيار أبسط وأضمن صيغة لـ yt-dlp تتجنب مشاكل الـ formats تماماً
-        ydl_opts = {
-            **common_opts,
-            'format': 'best',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
-        }
+        ydl_opts['format'] = 'bestaudio'
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '128',
+        }]
 
     if progress_callback:
         ydl_opts['progress_hooks'] = [hook]
