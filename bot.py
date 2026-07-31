@@ -533,7 +533,8 @@ def handle_document_translation(message):
         c = canvas.Canvas(output_pdf_path, pagesize=letter)
         
         font_registered = False
-        font_paths = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "arial.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf"]
+        # تم وضع ملف الخط Tajawal-Regular.ttf في البداية لضمان عمله مباشرة
+        font_paths = ["Tajawal-Regular.ttf", "arial.ttf", "DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
         for fpath in font_paths:
             if os.path.exists(fpath):
                 try:
@@ -908,6 +909,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث الكود بالكامل ومعالجة حدود حجم ملفات تيليجرام (20 ميجابايت) واستيراد BiDi بنجاح!")
+    logger.info("تم تحديث الكود بالكامل وربط خط Tajawal بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
