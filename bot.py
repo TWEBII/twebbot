@@ -9,7 +9,7 @@ import time
 import logging
 from groq import Groq
 import arabic_reshaper
-from bidi.algorithm import get_bidi
+from bidi.algorithm import get_display
 from PyPDF2 import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -424,7 +424,6 @@ def handle_download_callback(call):
             parse_mode="Markdown"
         )
     elif os.path.exists(file_path):
-        # فحص حجم الملف الفعلي لمنع تجاوز حد 20MB الخاص بـ Telegram Bot API قبل الإرسال
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 20:
             if os.path.exists(file_path):
@@ -487,7 +486,7 @@ def handle_download_callback(call):
 def fix_arabic(text):
     try:
         reshaped_text = arabic_reshaper.reshape(text)
-        bidi_text = get_bidi(reshaped_text)
+        bidi_text = get_display(reshaped_text)
         return bidi_text
     except:
         return text
@@ -510,7 +509,6 @@ def handle_document_translation(message):
         bot.reply_to(message, "⚠️ عذراً، أستطيع ترجمة ملفات الـ PDF فقط حالياً.")
         return
 
-    # التحقق من حجم الملف المرفوع قبل التحميل والمعالجة (الحد الأقصى 20 ميجابايت)
     if file_info.file_size and file_info.file_size > 20 * 1024 * 1024:
         bot.reply_to(message, f"❌ عذراً، حجم الملف الكبير ({file_info.file_size / (1024*1024):.1f} MB) يتجاوز حد تيليجرام المسموح للبوتات (20 MB). يرجى إرسال ملف اصغر حجمأ.")
         return
@@ -528,7 +526,7 @@ def handle_document_translation(message):
             new_file.write(downloaded_file)
             
         reader = PdfReader(input_pdf_path)
-        max_pages = min(len(reader.pages), 50) # ترجمة لغاية 50 صفحة
+        max_pages = min(len(reader.pages), 50) 
         
         bot.edit_message_text(f"🔄 **جاري ترجمة صفحات المستند وإعادة بناء ملف الـ PDF ({max_pages} صفحة)...**", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
 
@@ -587,7 +585,6 @@ def handle_document_translation(message):
             
         c.save()
 
-        # التحقق من حجم ملف الـ PDF الناتج قبل إرساله لمنع خطأ 400 إذا تجاوز 20MB
         output_size_mb = os.path.getsize(output_pdf_path) / (1024 * 1024)
         if output_size_mb > 20:
             bot.edit_message_text(f"⚠️ الملف الناتج كبير جداً ({output_size_mb:.1f} MB) ويتجاوز حد الـ 20MB المسموح في تيليجرام.", chat_id=message.chat.id, message_id=status_msg.message_id)
@@ -700,7 +697,6 @@ def callback_handler(call):
         )
         edit_user_interface(call, dl_text, get_user_back_button())
 
-    # أوامر الإدارة
     if str(user_id) == ADMIN_ID or call.from_user.username == "TWEBii":
         if call.data == "back_main":
             stats_text = (
@@ -912,6 +908,6 @@ def process_user_instructions(message):
     bot.reply_to(message, "✅ تم حفظ أسلوبك، سألتزم به في ردودي القادمة.")
 
 if __name__ == "__main__":
-    logger.info("تم تحديث الكود بالكامل ومعالجة حدود حجم ملفات تيليجرام (20 ميجابايت) بنجاح!")
+    logger.info("تم تحديث الكود بالكامل ومعالجة حدود حجم ملفات تيليجرام (20 ميجابايت) واستيراد BiDi بنجاح!")
     bot.remove_webhook()
     bot.infinity_polling()
