@@ -259,6 +259,40 @@ def send_daily_dhikr_job():
     except Exception as e:
         logger.error(f"Error in send_daily_dhikr_job: {e}")
 
+def send_sleep_dhikr_job():
+    """ترسل أذكار النوم المخصصة تلقائياً يومياً لكل المستخدمين"""
+    db = load_db()
+    users = db.get("users", [])
+    if not users:
+        return
+
+    if not os.path.exists("dhikr.json"):
+        logger.warning("ملف dhikr.json غير موجود، لا يمكن إرسال أذكار النوم.")
+        return
+
+    try:
+        with open("dhikr.json", "r", encoding="utf-8") as f:
+            dhikr_list = json.load(f)
+        
+        # تصفية النصوص لجلب أذكار النوم فقط بناءً على الفئة أو الكلمة المفتاحية
+        sleep_dhikr = [d for d in dhikr_list if "النوم" in d.get("category", "")]
+        
+        # إذا لم يتم العثور على فئة مخصصة، نختار نصاً عشوائياً مناسباً لفترة الليل
+        if not sleep_dhikr:
+            sleep_dhikr = dhikr_list
+
+        random_dhikr = random.choice(sleep_dhikr)
+        msg_text = f"🌙 **أذكار النوم والراحة** 🌙\n\n{random_dhikr.get('text')}\n\n💤 نوم هنيئاً وعافية بإذن الله."
+        
+        for u_id in users:
+            try:
+                bot.send_message(u_id, msg_text)
+                time.sleep(0.05)
+            except Exception:
+                continue
+    except Exception as e:
+        logger.error(f"Error in send_sleep_dhikr_job: {e}")
+
 def check_islamic_occasions_job():
     """تفحص المناسبات الشرعية والأيام البيض وتنبّه المستخدمين بها، وتذكر بيوم الجمعة"""
     db = load_db()
@@ -326,6 +360,9 @@ scheduler = BackgroundScheduler(timezone=baghdad_tz)
 
 # إرسال ذكر الصباح اليومي في تمام الساعة 8:00 صباحاً
 scheduler.add_job(send_daily_dhikr_job, 'cron', hour=8, minute=0)
+
+# التعديل الجديد: فحص وإرسال أذكار النوم يومياً في تمام الساعة 10:05 مساءً (22:05)
+scheduler.add_job(send_sleep_dhikr_job, 'cron', hour=22, minute=5)
 
 # فحص وإرسال التذكيرات والمناسبات الدينية ويوم الجمعة الساعة 9:00 صباحاً
 scheduler.add_job(check_islamic_occasions_job, 'cron', hour=9, minute=0)
