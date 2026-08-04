@@ -6,3 +6,4 @@ yt-dlp
 pytesseract
 Pillow
 deep-translator
+pytz
