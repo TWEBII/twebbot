@@ -1477,7 +1477,7 @@ def webhook():
 def index():
     return "Bot is running successfully on Render!", 200
 
-if __main__ == '__main__':
+if __name__ == '__main__':
     # تعيين رابط الويب هوك تلقائياً على منصة Render
     WEBHOOK_URL = f"https://twebme.onrender.com/{TOKEN}"
     bot.remove_webhook()
