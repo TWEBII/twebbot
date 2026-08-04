@@ -10,3 +10,4 @@ pytz
 groq
 APScheduler
 hijri-converter
+pymongo
