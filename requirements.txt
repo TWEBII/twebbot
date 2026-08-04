@@ -8,3 +8,4 @@ Pillow
 deep-translator
 pytz
 groq
+APScheduler
