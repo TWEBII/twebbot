@@ -3,3 +3,5 @@ pyTelegramBotAPI
 gunicorn
 requests
 yt-dlp
+pytesseract
+Pillow
