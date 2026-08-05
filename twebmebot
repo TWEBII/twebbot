@@ -1597,7 +1597,7 @@ def callback_handler(call):
             return
         bot.register_next_step_handler(msg, process_user_support_message, today)
 msg = bot.send_message(user_id, "🛠 يرجى كتابة تفاصيل المشكلة في رسالة واحدة ليتم توجيهها للمطور:")
-        bot.register_next_step_handler(msg, process_user_support_message, today)
+bot.register_next_step_handler(msg, process_user_support_message, today)
     elif call.data == "user_menu_guide":
         bot.answer_callback_query(call.id)
         guide_text = "❓ **دليل استخدام بوت TWEB:**\n\nأرسل رابط أي فيديو للتحميل، أو أرسل ملفاً أو صورة للترجمة والتعديل، أو استمتع بالألعاب وأوقات الصلاة."
