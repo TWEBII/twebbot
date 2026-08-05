@@ -697,7 +697,7 @@ def process_game_account_name_with_province(message):
     name = message.text.strip()
     
     if not name or name.startswith('/'):
-        msg = bot.reply_to(message, "⚠️ الاسم غير صالح. يرجى إدخال اسمك الثلاثي أو الثنائي بشكل صحيح:")
+        msg = bot.reply_to(message, "⚠️ الاسم غير صالح. يرجى إدخال اسمك بشكل صحيح:")
         bot.register_next_step_handler(msg, process_game_account_name_with_province)
         return
 
