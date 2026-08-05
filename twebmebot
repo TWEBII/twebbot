@@ -1,0 +1,1608 @@
+import sys
+import os
+
+# تحديد المجلد الحالي للبوت تلقائياً لضمان توافق المسارات على Render وسيرفرات الاستضافة
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
+
+import pytesseract
+from PIL import Image, ImageDraw, ImageFont
+from deep_translator import GoogleTranslator
+import urllib.parse
+
+import telebot
+from flask import Flask, request
+import json
+import random
+import datetime
+import pytz
+import re
+import uuid
+import time
+import logging
+from groq import Groq
+from pymongo import MongoClient
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from downloader import download_media, get_video_info
+import games
+
+# استيراد أسئلة الكت من الملف الخارجي
+try:
+    import kut_questions
+    KUT_SUPPORT = True
+except ImportError:
+    KUT_SUPPORT = False
+    logging.warning("تنبيه: ملف أسئلة الكت (kut_questions.py) غير موجود أو تعذر استيراده.")
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from hijri_converter import Gregorian
+
+# --- إصلاح استيراد مكتبات اللغة العربية لتكون مستقلة تماماً وضمان عملها دائماً ---
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    ARABIC_SUPPORT = True
+except ImportError:
+    ARABIC_SUPPORT = False
+    logging.warning("تنبيه: مكتبات معالجة اللغة العربية (arabic-reshaper أو python-bidi) غير مثبتة.")
+
+try:
+    import fitz  # PyMuPDF
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    logging.warning("تنبيه: مكتبة PyMuPDF (fitz) غير مثبتة.")
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# --- بيانات البوت والمطور الرسمية ---
+TOKEN = "8898698558:AAEDmDHjT4g6h3eLRvs5uWCnrT0BDOosOjQ"
+ADMIN_ID = "8411608232"
+
+# --- قناة الاشتراك الإجباري ---
+REQUIRED_CHANNEL = "@lTelegramWeb"
+
+# --- اتصال سحابة MongoDB Atlas ---
+CONNECTION_STRING = (
+    "mongodb+srv://twebmebot:Ahmed200331Radam@cluster0.fjpbzx2.mongodb.net/?"
+    "retryWrites=true&w=majority&appName=Cluster0"
+)
+
+try:
+    mongo_client = MongoClient(CONNECTION_STRING)
+    mongo_db = mongo_client["tweb_database"]
+    db_collection = mongo_db["bot_data"]
+    logger.info("تم الاتصال بقاعدة بيانات MongoDB Atlas بنجاح!")
+except Exception as e:
+    logger.error(f"فشل الاتصال بـ MongoDB Atlas: {e}")
+    mongo_client = None
+    db_collection = None
+
+# --- نظام التناوب للـ API Keys الخاصة بـ Groq ---
+GROQ_API_KEYS = [
+    "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",
+    "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",
+    "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"
+]
+current_key_index = 0
+
+def get_next_groq_client():
+    global current_key_index
+    key = GROQ_API_KEYS[current_key_index]
+    current_key_index = (current_key_index + 1) % len(GROQ_API_KEYS)
+    return Groq(api_key=key)
+
+STREAM_SERVER_URL = "https://file-to-link-stevebotz-02.koyeb.app"
+
+# استخدام المسارات النسبية الآمنة لـ Render
+VIDEO_PATH = os.path.join(BASE_DIR, "video.mp4")
+DB_FILE = os.path.join(BASE_DIR, "database.json")
+DHIKR_FILE = os.path.join(BASE_DIR, "dhikr.json")
+
+FONT_PATH = os.path.join(BASE_DIR, "DejaVuSans.ttf")
+if not os.path.exists(FONT_PATH):
+    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+app = Flask(__name__)
+pending_downloads = {}
+last_edit_time = {}
+cached_bot_id = None
+
+bot = telebot.TeleBot(TOKEN, threaded=False)
+games.setup_game_handlers(bot)
+
+# --- قائمة الحوازير والألغاز الجاهزة مع أجوبتها ---
+RIDDLES_LIST = [
+    {"riddle": "ما هو الشيء الذي أذا أكلته كله ينفعك، وإذا أكلت نصفه ماتك؟", "answer": "سمسم"},
+    {"riddle": "ما هو الباب الذي لا يمكن فتحه؟", "answer": "الباب المفتوح"},
+    {"riddle": "كلمة يتكون اسمك منها، وإذا أكلت نصفها تعيش، وإذا أكلت كلها تموت؟", "answer": "سمك"},
+    {"riddle": "ما هو الشيء الذي له أربع أرجل ولا يمكنه المشي؟", "answer": "الكرسي"},
+    {"riddle": "ما هو الشيء الذي يسير أمامك ولا تراه؟", "answer": "الهواء"},
+    {"riddle": "يتمشى معك دائماً، يشبهك كثيراً، ولا يتكلم إلا عندما تتكلم؟", "answer": "الظل"},
+    {"riddle": "من هو الشخص الذي يرى عدوه وصدقه بعين واحدة؟", "answer": "الأعور"},
+    {"riddle": "ما هو الشيء الذي كلما كبر صغر؟", "answer": "الحفرة"},
+    {"riddle": "ما هو البيت الذي ليس فيه أبواب ولا أوصاف؟", "answer": "بيت الشعر"},
+    {"riddle": "ما هو الشيء الذي يوجد في وسط باريس؟", "answer": "حرف الـ ر"}
+]
+
+STICKER_SETS = [
+    "Adhkar_by_maker_Sticker_bot", "Stillness_by_maker_Sticker_bot",
+    "Childrennnn_by_maker_Sticker_bot", "Moneyme_by_maker_Sticker_bot",
+    "yourose_by_maker_Sticker_bot", "Myrefuge_by_maker_Sticker_bot",
+    "Funnyye_by_maker_Sticker_bot", "Life_by_maker_Sticker_bot"
+]
+
+IRAQ_DISTRICTS_PRAYER_TIMES = {
+    "كركوك": {
+        "مركز كركوك": {"Fajr": "03:37 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:33 PM"},
+        "دقوق": {"Fajr": "03:38 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:07 PM", "Isha": "08:32 PM"},
+        "الحويجة": {"Fajr": "03:40 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:15 PM", "Asr": "03:59 PM", "Maghrib": "07:10 PM", "Isha": "08:35 PM"},
+        "الدبس": {"Fajr": "03:38 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:14 PM", "Asr": "03:58 PM", "Maghrib": "07:09 PM", "Isha": "08:34 PM"}
+    },
+    "بغداد": {
+        "مركز بغداد": {"Fajr": "03:40 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "الكرادة": {"Fajr": "03:40 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "الكاظمية": {"Fajr": "03:40 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "الاعظمية": {"Fajr": "03:40 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "المحمودية": {"Fajr": "03:41 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:13 PM", "Asr": "03:56 PM", "Maghrib": "07:06 PM", "Isha": "08:31 PM"},
+        "الابو غريب": {"Fajr": "03:42 AM", "Sunrise": "05:15 AM", "Dhuhr": "12:14 PM", "Asr": "03:57 PM", "Maghrib": "07:07 PM", "Isha": "08:32 PM"}
+    },
+    "أربيل": {
+        "مركز أربيل": {"Fajr": "03:35 AM", "Sunrise": "05:08 AM", "Dhuhr": "12:13 PM", "Asr": "03:58 PM", "Maghrib": "07:09 PM", "Isha": "08:35 PM"},
+        "سوران": {"Fajr": "03:32 AM", "Sunrise": "05:05 AM", "Dhuhr": "12:11 PM", "Asr": "03:56 PM", "Maghrib": "07:07 PM", "Isha": "08:33 PM"},
+        "مخمور": {"Fajr": "03:37 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:14 PM", "Asr": "03:59 PM", "Maghrib": "07:11 PM", "Isha": "08:37 PM"},
+        "شقلاوة": {"Fajr": "03:33 AM", "Sunrise": "05:06 AM", "Dhuhr": "12:12 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:34 PM"},
+        "كويسنجق": {"Fajr": "03:34 AM", "Sunrise": "05:07 AM", "Dhuhr": "12:13 PM", "Asr": "03:58 PM", "Maghrib": "07:09 PM", "Isha": "08:35 PM"}
+    },
+    "البصرة": {
+        "مركز البصرة": {"Fajr": "03:42 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:02 PM", "Asr": "03:43 PM", "Maghrib": "06:52 PM", "Isha": "08:15 PM"},
+        "الزبير": {"Fajr": "03:43 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:03 PM", "Asr": "03:44 PM", "Maghrib": "06:53 PM", "Isha": "08:16 PM"},
+        "القرنة": {"Fajr": "03:41 AM", "Sunrise": "05:09 AM", "Dhuhr": "12:02 PM", "Asr": "03:43 PM", "Maghrib": "06:52 PM", "Isha": "08:15 PM"},
+        "الفاو": {"Fajr": "03:40 AM", "Sunrise": "05:08 AM", "Dhuhr": "12:00 PM", "Asr": "03:41 PM", "Maghrib": "06:50 PM", "Isha": "08:13 PM"},
+        "أبو الخصيب": {"Fajr": "03:42 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:02 PM", "Asr": "03:43 PM", "Maghrib": "06:52 PM", "Isha": "08:15 PM"}
+    },
+    "نينوى": {
+        "مركز الموصل": {"Fajr": "03:44 AM", "Sunrise": "05:18 AM", "Dhuhr": "12:18 PM", "Asr": "04:02 PM", "Maghrib": "07:13 PM", "Isha": "08:39 PM"},
+        "تلعفر": {"Fajr": "03:46 AM", "Sunrise": "05:20 AM", "Dhuhr": "12:20 PM", "Asr": "04:04 PM", "Maghrib": "07:15 PM", "Isha": "08:41 PM"},
+        "الحمدانية": {"Fajr": "03:43 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:17 PM", "Asr": "04:01 PM", "Maghrib": "07:12 PM", "Isha": "08:38 PM"},
+        "سنجار": {"Fajr": "03:48 AM", "Sunrise": "05:22 AM", "Dhuhr": "12:22 PM", "Asr": "04:06 PM", "Maghrib": "07:17 PM", "Isha": "08:43 PM"},
+        "شيخان": {"Fajr": "03:43 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:17 PM", "Asr": "04:01 PM", "Maghrib": "07:12 PM", "Isha": "08:38 PM"}
+    },
+    "السليمانية": {
+        "مركز السليمانية": {"Fajr": "03:33 AM", "Sunrise": "05:06 AM", "Dhuhr": "12:11 PM", "Asr": "03:56 PM", "Maghrib": "07:07 PM", "Isha": "08:33 PM"},
+        "بنجوين": {"Fajr": "03:31 AM", "Sunrise": "05:04 AM", "Dhuhr": "12:09 PM", "Asr": "03:54 PM", "Maghrib": "07:05 PM", "Isha": "08:31 PM"},
+        "كلار": {"Fajr": "03:35 AM", "Sunrise": "05:08 AM", "Dhuhr": "12:11 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "رانية": {"Fajr": "03:34 AM", "Sunrise": "05:07 AM", "Dhuhr": "12:12 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:34 PM"},
+        "جمجمال": {"Fajr": "03:34 AM", "Sunrise": "05:07 AM", "Dhuhr": "12:12 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:34 PM"}
+    },
+    "النجف": {
+        "مركز النجف": {"Fajr": "03:47 AM", "Sunrise": "05:19 AM", "Dhuhr": "12:14 PM", "Asr": "03:56 PM", "Maghrib": "07:05 PM", "Isha": "08:29 PM"},
+        "الكوفة": {"Fajr": "03:47 AM", "Sunrise": "05:19 AM", "Dhuhr": "12:14 PM", "Asr": "03:56 PM", "Maghrib": "07:05 PM", "Isha": "08:29 PM"},
+        "المناذرة": {"Fajr": "03:46 AM", "Sunrise": "05:18 AM", "Dhuhr": "12:13 PM", "Asr": "03:55 PM", "Maghrib": "07:04 PM", "Isha": "08:28 PM"}
+    },
+    "كربلاء": {
+        "مركز كربلاء": {"Fajr": "03:44 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:13 PM", "Asr": "03:56 PM", "Maghrib": "07:06 PM", "Isha": "08:31 PM"},
+        "الهندية": {"Fajr": "03:43 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "عين التمر": {"Fajr": "03:47 AM", "Sunrise": "05:20 AM", "Dhuhr": "12:16 PM", "Asr": "04:09 PM", "Maghrib": "07:09 PM", "Isha": "08:34 PM"}
+    },
+    "المثنى": {
+        "مركز السماوة": {"Fajr": "03:46 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:10 PM", "Asr": "03:51 PM", "Maghrib": "07:00 PM", "Isha": "08:23 PM"},
+        "الرميثة": {"Fajr": "03:45 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:09 PM", "Asr": "03:50 PM", "Maghrib": "06:59 PM", "Isha": "08:22 PM"},
+        "الخضر": {"Fajr": "03:44 AM", "Sunrise": "05:15 AM", "Dhuhr": "12:08 PM", "Asr": "03:49 PM", "Maghrib": "06:58 PM", "Isha": "08:21 PM"}
+    },
+    "الديوانية": {
+        "مركز القادسية": {"Fajr": "03:45 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:11 PM", "Asr": "03:53 PM", "Maghrib": "07:02 PM", "Isha": "08:26 PM"},
+        "عفك": {"Fajr": "03:44 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:10 PM", "Asr": "03:52 PM", "Maghrib": "07:01 PM", "Isha": "08:25 PM"},
+        "الشامية": {"Fajr": "03:46 AM", "Sunrise": "05:18 AM", "Dhuhr": "12:12 PM", "Asr": "03:54 PM", "Maghrib": "07:03 PM", "Isha": "08:27 PM"},
+        "الحمزة": {"Fajr": "03:45 AM", "Sunrise": "05:17 AM", "Dhuhr": "12:11 PM", "Asr": "03:53 PM", "Maghrib": "07:02 PM", "Isha": "08:26 PM"}
+    },
+    "بابل": {
+        "مركز الحلة": {"Fajr": "03:42 AM", "Sunrise": "05:15 AM", "Dhuhr": "12:12 PM", "Asr": "03:55 PM", "Maghrib": "07:05 PM", "Isha": "08:30 PM"},
+        "المسيب": {"Fajr": "03:43 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:13 PM", "Asr": "03:56 PM", "Maghrib": "07:06 PM", "Isha": "08:31 PM"},
+        "الإسكندرية": {"Fajr": "03:43 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:13 PM", "Asr": "03:56 PM", "Maghrib": "07:06 PM", "Isha": "08:31 PM"},
+        "الهاشمية": {"Fajr": "03:41 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:11 PM", "Asr": "03:54 PM", "Maghrib": "07:04 PM", "Isha": "08:29 PM"}
+    },
+    "واسط": {
+        "مركز الكوت": {"Fajr": "03:41 AM", "Sunrise": "05:12 AM", "Dhuhr": "12:08 PM", "Asr": "03:49 PM", "Maghrib": "07:01 PM", "Isha": "08:25 PM"},
+        "الحي": {"Fajr": "03:40 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:07 PM", "Asr": "03:49 PM", "Maghrib": "07:00 PM", "Isha": "08:24 PM"},
+        "الصويرة": {"Fajr": "03:42 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:10 PM", "Asr": "03:53 PM", "Maghrib": "07:03 PM", "Isha": "08:28 PM"},
+        "النعمانية": {"Fajr": "03:41 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:09 PM", "Asr": "03:52 PM", "Maghrib": "07:02 PM", "Isha": "08:27 PM"}
+    },
+    "ديالى": {
+        "مركز بعقوبة": {"Fajr": "03:39 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:10 PM", "Asr": "03:54 PM", "Maghrib": "07:04 PM", "Isha": "08:29 PM"},
+        "المقدادية": {"Fajr": "03:38 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:09 PM", "Asr": "03:53 PM", "Maghrib": "07:03 PM", "Isha": "08:28 PM"},
+        "خانقين": {"Fajr": "03:36 AM", "Sunrise": "05:08 AM", "Dhuhr": "12:06 PM", "Asr": "03:50 PM", "Maghrib": "07:00 PM", "Isha": "08:25 PM"},
+        "الخالص": {"Fajr": "03:39 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:10 PM", "Asr": "03:54 PM", "Maghrib": "07:04 PM", "Isha": "08:29 PM"},
+        "بلدروز": {"Fajr": "03:37 AM", "Sunrise": "05:09 AM", "Dhuhr": "12:08 PM", "Asr": "03:52 PM", "Maghrib": "07:02 PM", "Isha": "08:27 PM"}
+    },
+    "صلاح الدين": {
+        "مركز تكريت": {"Fajr": "03:41 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:33 PM"},
+        "سامراء": {"Fajr": "03:42 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:07 PM", "Isha": "08:32 PM"},
+        "بيجي": {"Fajr": "03:43 AM", "Sunrise": "05:15 AM", "Dhuhr": "12:15 PM", "Asr": "03:59 PM", "Maghrib": "07:10 PM", "Isha": "08:35 PM"},
+        "الدور": {"Fajr": "03:41 AM", "Sunrise": "05:13 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:33 PM"},
+        "الطوز": {"Fajr": "03:39 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:11 PM", "Asr": "03:55 PM", "Maghrib": "07:06 PM", "Isha": "08:31 PM"},
+        "بلد": {"Fajr": "03:42 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:13 PM", "Asr": "03:57 PM", "Maghrib": "07:07 PM", "Isha": "08:32 PM"}
+    },
+    "الانبار": {
+        "مركز الرمادي": {"Fajr": "03:46 AM", "Sunrise": "05:19 AM", "Dhuhr": "12:17 PM", "Asr": "04:00 PM", "Maghrib": "07:11 PM", "Isha": "08:37 PM"},
+        "الفلوجة": {"Fajr": "03:43 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:14 PM", "Asr": "03:57 PM", "Maghrib": "07:08 PM", "Isha": "08:34 PM"},
+        "هيت": {"Fajr": "03:48 AM", "Sunrise": "05:21 AM", "Dhuhr": "12:19 PM", "Asr": "04:02 PM", "Maghrib": "07:13 PM", "Isha": "08:39 PM"},
+        "عنه": {"Fajr": "03:50 AM", "Sunrise": "05:23 AM", "Dhuhr": "12:21 PM", "Asr": "04:04 PM", "Maghrib": "07:15 PM", "Isha": "08:41 PM"},
+        "القائم": {"Fajr": "03:52 AM", "Sunrise": "05:25 AM", "Dhuhr": "12:23 PM", "Asr": "04:06 PM", "Maghrib": "07:17 PM", "Isha": "08:43 PM"},
+        "الرطبة": {"Fajr": "03:54 AM", "Sunrise": "05:27 AM", "Dhuhr": "12:25 PM", "Asr": "04:08 PM", "Maghrib": "07:19 PM", "Isha": "08:45 PM"}
+    },
+    "ذي قار": {
+        "مركز الناصرية": {"Fajr": "03:46 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:08 PM", "Asr": "03:50 PM", "Maghrib": "06:58 PM", "Isha": "08:21 PM"},
+        "الشطرة": {"Fajr": "03:46 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:09 PM", "Asr": "03:51 PM", "Maghrib": "06:59 PM", "Isha": "08:22 PM"},
+        "الجبايش": {"Fajr": "03:44 AM", "Sunrise": "05:14 AM", "Dhuhr": "12:07 PM", "Asr": "03:49 PM", "Maghrib": "06:56 PM", "Isha": "08:19 PM"},
+        "سوق الشيوخ": {"Fajr": "03:46 AM", "Sunrise": "05:16 AM", "Dhuhr": "12:08 PM", "Asr": "03:50 PM", "Maghrib": "06:58 PM", "Isha": "08:21 PM"}
+    },
+    "ميسان": {
+        "مركز العمارة": {"Fajr": "03:41 AM", "Sunrise": "05:10 AM", "Dhuhr": "12:05 PM", "Asr": "03:47 PM", "Maghrib": "06:56 PM", "Isha": "08:20 PM"},
+        "المجر الكبير": {"Fajr": "03:40 AM", "Sunrise": "05:09 AM", "Dhuhr": "12:04 PM", "Asr": "03:46 PM", "Maghrib": "06:55 PM", "Isha": "08:19 PM"},
+        "علي الغربي": {"Fajr": "03:43 AM", "Sunrise": "05:12 AM", "Dhuhr": "12:07 PM", "Asr": "03:49 PM", "Maghrib": "06:58 PM", "Isha": "08:22 PM"},
+        "كميت": {"Fajr": "03:42 AM", "Sunrise": "05:11 AM", "Dhuhr": "12:06 PM", "Asr": "03:48 PM", "Maghrib": "06:57 PM", "Isha": "08:21 PM"}
+    },
+    "دهوك": {
+        "مركز دهوك": {"Fajr": "03:46 AM", "Sunrise": "05:20 AM", "Dhuhr": "12:19 PM", "Asr": "04:03 PM", "Maghrib": "07:14 PM", "Isha": "08:41 PM"},
+        "زاخو": {"Fajr": "03:48 AM", "Sunrise": "05:22 AM", "Dhuhr": "12:21 PM", "Asr": "04:05 PM", "Maghrib": "07:16 PM", "Isha": "08:43 PM"},
+        "العمادية": {"Fajr": "03:45 AM", "Sunrise": "05:19 AM", "Dhuhr": "12:18 PM", "Asr": "04:02 PM", "Maghrib": "07:13 PM", "Isha": "08:40 PM"},
+        "سيلان": {"Fajr": "03:47 AM", "Sunrise": "05:21 AM", "Dhuhr": "12:20 PM", "Asr": "04:04 PM", "Maghrib": "07:15 PM", "Isha": "08:42 PM"}
+    }
+}
+
+try:
+    bot.set_my_commands([
+        BotCommand("/start", "رسالة البدء"),
+        BotCommand("/ping", "فحص سرعة البوت (للمطور)"),
+        BotCommand("/ريدل", "لعبة الحوازير والألغاز"),
+        BotCommand("/kut", "لعبة أسئلة الكت")
+    ])
+except Exception as e:
+    logger.error(f"Error setting commands: {e}")
+
+def get_bot_id():
+    global cached_bot_id
+    if cached_bot_id is None:
+        try:
+            cached_bot_id = bot.get_me().id
+        except Exception as e:
+            logger.error(f"Failed to fetch bot ID: {e}")
+    return cached_bot_id
+
+def load_db():
+    default_data = {
+        "users": [], "banned_users": [], "notified_users": [],
+        "bot_active": True, "start_text": "أهلاً بك في بوت الذكاء الاصطناعي TWEB! كيف يمكنني مساعدتك اليوم؟",
+        "custom_buttons": [], "support_logs": {}, "user_instructions": {},
+        "msg_counters": {}, "login_notice": True, "user_provinces": {}, "user_districts": {}, "user_madhabs": {}, "manual_offsets": {},
+        "riddle_scores": {}, "active_riddles": {}, "game_accounts": {}, "game_points": {}, "pending_game_provinces": {}
+    }
+    
+    if db_collection is not None:
+        try:
+            doc = db_collection.find_one({"_id": "main_data"})
+            if doc:
+                doc.pop("_id", None)
+                for key, val in default_data.items():
+                    if key not in doc:
+                        doc[key] = val
+                if "login_notice" not in doc: doc["login_notice"] = True
+                if "notified_users" not in doc: doc["notified_users"] = []
+                if "user_provinces" not in doc: doc["user_provinces"] = {}
+                if "user_districts" not in doc: doc["user_districts"] = {}
+                if "user_madhabs" not in doc: doc["user_madhabs"] = {}
+                if "manual_offsets" not in doc: doc["manual_offsets"] = {}
+                if "riddle_scores" not in doc: doc["riddle_scores"] = {}
+                if "active_riddles" not in doc: doc["active_riddles"] = {}
+                if "game_accounts" not in doc: doc["game_accounts"] = {}
+                if "game_points" not in doc: doc["game_points"] = {}
+                if "pending_game_provinces" not in doc: doc["pending_game_provinces"] = {}
+                return doc
+        except Exception as e:
+            logger.error(f"Error loading DB from MongoDB: {e}")
+
+    # Fallback to local file if MongoDB fails
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for key, val in default_data.items():
+                    if key not in data:
+                        data[key] = val
+                return data
+        except Exception as e:
+            logger.error(f"Error loading DB locally: {e}")
+            
+    return default_data
+
+def save_db(db):
+    if db_collection is not None:
+        try:
+            data_to_save = dict(db)
+            data_to_save["_id"] = "main_data"
+            db_collection.replace_one({"_id": "main_data"}, data_to_save, upsert=True)
+            return
+        except Exception as e:
+            logger.error(f"Error saving DB to MongoDB: {e}")
+            
+    # Fallback to local file if MongoDB fails
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving DB locally: {e}")
+
+def safe_remove_file(file_path):
+    try:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception as e:
+        logger.warning(f"تحذير: تعذر حذف الملف المؤقت {file_path}: {e}")
+
+def check_subscription(user_id):
+    try:
+        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        if member.status in ['member', 'administrator', 'creator']:
+            return True
+    except Exception as e:
+        logger.error(f"Subscription Check Error: {e}")
+    return False
+
+def sub_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("TWEB", url="https://t.me/lTelegramWeb"))
+    markup.add(InlineKeyboardButton("تحقق من الانضمام", callback_data="check_sub"))
+    return markup
+
+def translate_text(text, target_lang='ar'):
+    try:
+        return GoogleTranslator(source='auto', target=target_lang).translate(text)
+    except Exception as e:
+        logger.error(f"Translation Error: {e}")
+        return text
+
+def get_admin_keyboard():
+    db = load_db()
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("المحتوى 📝", callback_data="menu_content"),
+               InlineKeyboardButton("الإعدادات ⚙️", callback_data="menu_settings"))
+    markup.row(InlineKeyboardButton("الاشتراك 🔐", callback_data="menu_subscribe"),
+               InlineKeyboardButton("المستخدمون 👥", callback_data="users_count"))
+    markup.row(InlineKeyboardButton("المالية 💰", callback_data="menu_finance"),
+               InlineKeyboardButton("التواصل 📣", callback_data="menu_broadcast"))
+    markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="menu_system_support"))
+
+    status_ban = "✅" if "ban_notice" in db else "🚫"
+    status_login = "✅" if db.get("login_notice", True) else "🚫"
+    markup.row(InlineKeyboardButton(f"إشعار الحظر {status_ban}", callback_data="toggle_ban_notice"),
+               InlineKeyboardButton(f"إشعار الدخول {status_login}", callback_data="toggle_login_notice"))
+
+    markup.row(InlineKeyboardButton("دليل الاستخدام ❓", callback_data="menu_guide"))
+    markup.row(InlineKeyboardButton("لوحه تحكم الصانع", callback_data="menu_creator"))
+    return markup
+
+def get_settings_keyboard():
+    db = load_db()
+    markup = InlineKeyboardMarkup()
+    status = "💡 مشتغل حالياً" if db.get("bot_active", True) else "🔒 معطل حالياً"
+    markup.row(InlineKeyboardButton("🟢 تفعيل البوت عند الكل", callback_data="set_bot_on"))
+    markup.row(InlineKeyboardButton("🔴 تعطيل البوت عند الكل", callback_data="set_bot_off"))
+    markup.row(InlineKeyboardButton(status, callback_data="none"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
+    return markup
+
+def get_content_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("📝 تعديل الأزرار الشفافة", callback_data="edit_all_inline"))
+    markup.row(InlineKeyboardButton("➕ إضافة زر شفاف لرسالة START", callback_data="add_start_btn"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
+    return markup
+
+def get_creator_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("✏️ تعديل نص رسالة START", callback_data="edit_start_text"))
+    markup.row(InlineKeyboardButton("❌ حذف الأزرار الشفافة المضافة", callback_data="clear_start_btns"))
+    markup.row(InlineKeyboardButton("« رجوع للوحة الرئيسية", callback_data="back_main"))
+    return markup
+
+def build_user_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("الاشتراك 🔐", callback_data="user_menu_sub"),
+               InlineKeyboardButton("التواصل 📣", callback_data="user_menu_contact"))
+    markup.row(InlineKeyboardButton("النظام والدعم 🛠", callback_data="user_menu_support"),
+               InlineKeyboardButton("دليل الاستخدام ❓", callback_data="user_menu_guide"))
+    markup.row(InlineKeyboardButton("الحساب 🏆", callback_data="user_menu_account"),
+               InlineKeyboardButton("🎮 الألعاب والترافيه", callback_data="user_menu_games"))
+    markup.row(InlineKeyboardButton("🕌 مواقيت الصلاة في العراق", callback_data="user_menu_prayer_times"))
+
+    db = load_db()
+    for btn in db.get("custom_buttons", []):
+        markup.row(InlineKeyboardButton(btn['text'], url=btn['url']))
+    return markup
+
+def get_user_back_button():
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+    return markup
+
+def get_games_menu_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("❓ لعبة أسئلة الكت", callback_data="user_menu_kut"),
+               InlineKeyboardButton("🧩 لعبة الحوازير والألغاز", callback_data="user_menu_riddles"))
+    markup.row(InlineKeyboardButton("🏆 نقاط الحوازير", callback_data="user_menu_riddle_scores"))
+    markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+    return markup
+
+def edit_user_interface(call, text, markup):
+    try:
+        if call.message.photo or call.message.video:
+            bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        else:
+            bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        try:
+            if call.message.photo or call.message.video:
+                bot.edit_message_caption(caption=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+            else:
+                bot.edit_message_text(text=text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+        except Exception as ex:
+            logger.error(f"Interface Edit Error: {ex}")
+
+def send_random_sticker(chat_id):
+    try:
+        set_name = random.choice(STICKER_SETS)
+        sticker_set = bot.get_sticker_set(set_name)
+        if sticker_set.stickers:
+            sticker = random.choice(sticker_set.stickers)
+            bot.send_sticker(chat_id, sticker.file_id)
+    except Exception as e:
+        logger.warning(f"Failed to send sticker: {e}")
+
+def clean_ai_response(text):
+    if not text: return text
+    cleaned = re.sub(r'\b(tôi|Tôî|aquí)\b', '', text, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+def get_ai_reply(message, user_message):
+    tz = pytz.timezone('Asia/Baghdad')
+    iraq_time = datetime.datetime.now(tz).strftime('%Y-%m-%d %I:%M:%S %p')
+
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    is_developer = (str(user_id) == ADMIN_ID or username.lower() == "twebii")
+
+    db = load_db()
+    custom_instr = db.get("user_instructions", {}).get(str(user_id), "لا توجد شروط مخصصة.")
+
+    dev_directive = ""
+    if is_developer:
+        dev_directive = (
+            f"\n[تنبيه هام جداً ورئيسي]: هذا المستخدم الذي يراسلك الآن هو مطورك وصانعك الأبدي ومبرمجك 'أحمد' (TWEB), "
+            f"أيديه هو {ADMIN_ID} ومعرفه هو @TWEBii ورقم هاتفه 07704701242. "
+            f"يجب عليك معرفته والاعتراف به فوراً وبكل فخر واحترام في أي مكان أو مجموعة دون أن يحتاج لتذكيرك، "
+            f"ولا تنكر أبداً أنه مطورك وصانعك."
+        )
+
+    system_prompt = (
+        f"أنت مساعد ذكي مبرمج بواسطة المطور أحمد (TWEB), واسمك تويب (Tweb أو TWEB). "
+        f"الوقت والتاريخ الحالي في العراق هو: {iraq_time}.\n"
+        f"{dev_directive}\n"
+        f"قواعد الإجابة الصارمة:\n"
+        f"1. اكتب باللغة العربية الفصحى السليمة فقط لا غير.\n"
+        f"2. يمنع منعاً باتاً استخدام أو إدراج أي كلمات أجنبية أو حروف غريبة تحت أي ظرف.\n"
+        f"3. التزم تماماً بتفضيلات التعامل المحددة من هذا المستخدم إن وجدت وهي: [{custom_instr}]."
+    )
+
+    for _ in range(len(GROQ_API_KEYS)):
+        try:
+            client = get_next_groq_client()
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.1,
+                max_tokens=1024
+            )
+            raw_reply = response.choices[0].message.content
+            return clean_ai_response(raw_reply)
+        except Exception as e:
+            logger.error(f"Groq API Error (Trying next key): {e}")
+            continue
+
+    return "عذراً، أواجه مشكلة في الاتصال بالخادم حالياً أو نفدت الحدود اليومية لكل المفاتيح. يرجى المحاولة لاحقاً."
+
+def send_daily_dhikr_job():
+    db = load_db()
+    users = db.get("users", [])
+    if not users or not os.path.exists(DHIKR_FILE): return
+    try:
+        with open(DHIKR_FILE, "r", encoding="utf-8") as f: dhikr_list = json.load(f)
+        if not dhikr_list: return
+        random_dhikr = random.choice(dhikr_list)
+        msg_text = f"✨ **ذكر اليوم الفاضل** ✨\n\n{random_dhikr.get('text')}\n\n📖 المصدر: {random_dhikr.get('category', 'حصن المسلم')}"
+        for u_id in users:
+            try: bot.send_message(u_id, msg_text); time.sleep(0.05)
+            except Exception: continue
+    except Exception as e: logger.error(f"Error in send_daily_dhikr_job: {e}")
+
+def send_sleep_dhikr_job():
+    db = load_db()
+    users = db.get("users", [])
+    if not users or not os.path.exists(DHIKR_FILE): return
+    try:
+        with open(DHIKR_FILE, "r", encoding="utf-8") as f: dhikr_list = json.load(f)
+        sleep_dhikr = [d for d in dhikr_list if "النوم" in d.get("category", "")]
+        if not sleep_dhikr: sleep_dhikr = dhikr_list
+        random_dhikr = random.choice(sleep_dhikr)
+        msg_text = f"🌙 **أذكار النوم والراحة** 🌙\n\n{random_dhikr.get('text')}\n\n💤 نوم هنيئاً وعافية بإذن الله."
+        for u_id in users:
+            try: bot.send_message(u_id, msg_text); time.sleep(0.05)
+            except Exception: continue
+    except Exception as e: logger.error(f"Error in send_sleep_dhikr_job: {e}")
+
+def check_islamic_occasions_job():
+    db = load_db()
+    users = db.get("users", [])
+    if not users: return
+    tz = pytz.timezone('Asia/Baghdad')
+    now = datetime.datetime.now(tz)
+    if now.weekday() == 4:
+        friday_text = "✨ **تذكير يوم الجمعة** ✨\n\nقال ﷺ: (إن من أفضل أيامكم يوم الجمعة، فأكثروا علي من الصلاة فيه)\n\nاللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ 🤍"
+        for u_id in users:
+            try: bot.send_message(u_id, friday_text); time.sleep(0.05)
+            except Exception: continue
+    try:
+        today_hijri = Gregorian.today().to_hijri()
+        h_day, h_month = today_hijri.day, today_hijri.month
+        islamic_msg = ""
+        if h_day in [13, 14, 15] and h_month != 12: islamic_msg = "💡 **تذكير بالأيام البيض**\n\nنحن الآن في الأيام البيض الفاضلة لشهر هجري (١٣، ١٤، ١٥)."
+        elif h_day in [14, 15] and h_month == 12: islamic_msg = "💡 **تذكير بالأيام البيض**\n\nنحن الآن في الأيام البيض الفاضلة لشهر ذي الحجة."
+        elif h_month == 12 and h_day == 9: islamic_msg = "🕌 **تذكير بيوم عرفة العظيم**\n\nاليوم هو يوم عرفة المشهود، أكثروا من الدعاء والاستغفار."
+        elif h_month == 12 and (1 <= h_day <= 8): islamic_msg = "🌱 **تذكير بعشر ذي الحجة**\n\nنحن في أيام عشر ذي الحجة المباركة، أفضل أيام الدنيا عند الله."
+        elif h_month == 1 and h_day in [9, 10]: islamic_msg = "🕌 **تذكير بصيام عاشوراء وتاسوعاء**\n\nصيام يوم عاشوراء يكفر ذنوب سنة مضت."
+        if islamic_msg:
+            for u_id in users:
+                try: bot.send_message(u_id, islamic_msg); time.sleep(0.05)
+                except Exception: continue
+    except Exception as e: logger.error(f"Error converting to Hijri: {e}")
+
+baghdad_tz = pytz.timezone('Asia/Baghdad')
+scheduler = BackgroundScheduler(timezone=baghdad_tz)
+scheduler.add_job(send_daily_dhikr_job, 'cron', hour=8, minute=0)
+scheduler.add_job(send_sleep_dhikr_job, 'cron', hour=22, minute=5)
+scheduler.add_job(check_islamic_occasions_job, 'cron', hour=9, minute=0)
+scheduler.start()
+
+def get_random_kut_question():
+    if not KUT_SUPPORT:
+        return None
+    try:
+        if hasattr(kut_questions, 'get_random_question'):
+            res = kut_questions.get_random_question()
+            if isinstance(res, str) and res.strip():
+                return res
+        
+        if hasattr(kut_questions, 'QUESTIONS_LIST') and isinstance(kut_questions.QUESTIONS_LIST, list):
+            q_list = kut_questions.QUESTIONS_LIST
+            if q_list:
+                item = random.choice(q_list)
+                if isinstance(item, str):
+                    return item
+                elif isinstance(item, dict):
+                    return item.get('text') or item.get('question') or str(item)
+
+        candidates = []
+        for attr in dir(kut_questions):
+            if attr.startswith('_'): continue
+            val = getattr(kut_questions, attr)
+            if isinstance(val, list) and val:
+                candidates.extend(val)
+            elif isinstance(val, dict) and val:
+                for sub_v in val.values():
+                    if isinstance(sub_v, list):
+                        candidates.extend(sub_v)
+        
+        if candidates:
+            chosen = random.choice(candidates)
+            if isinstance(chosen, str):
+                return chosen
+            elif isinstance(chosen, dict):
+                return chosen.get('text') or chosen.get('question') or str(chosen)
+    except Exception as e:
+        logger.error(f"Error getting kut question: {e}")
+    return None
+
+def check_game_account_registered(user_id):
+    db = load_db()
+    accounts = db.get("game_accounts", {})
+    return str(user_id) in accounts
+
+def add_game_points(user_id, points_amount):
+    db = load_db()
+    if "game_points" not in db: db["game_points"] = {}
+    u_str = str(user_id)
+    db["game_points"][u_str] = db["game_points"].get(u_str, 0) + points_amount
+    save_db(db)
+
+def send_prayer_times_report(message, province, district, madhab, is_callback=False):
+    db = load_db()
+    times_dict = IRAQ_DISTRICTS_PRAYER_TIMES.get(province, {}).get(district, {})
+    if not times_dict:
+        text = "⚠️ عذراً، لم يتم العثور على أوقات الصلاة لهذه المنطقة."
+        if is_callback:
+            bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id)
+        else:
+            bot.send_message(message.chat.id, text)
+        return
+
+    tz = pytz.timezone('Asia/Baghdad')
+    now = datetime.datetime.now(tz)
+    date_str = now.strftime('%Y-%m-%d')
+    
+    try:
+        hijri_date = Gregorian.today().to_hijri()
+        h_date_str = f"{hijri_date.day} / {hijri_date.month} / {hijri_date.year} هـ"
+    except Exception:
+        h_date_str = "غير متوفر"
+
+    madhab_text = "الجمهور (شافعي، مالكي، حنبلي)" if madhab == "shafii" else "المحنف (أبو حنيفة)"
+
+    report = (
+        f"🕌 **مواقيت الصلاة في العراق**\n\n"
+        f"📍 **المحافظة:** {province} ⟵ {district}\n"
+        f"⚖️ **المذهب الفقهي:** {madhab_text}\n"
+        f"📅 **التاريخ الميلادي:** `{date_str}`\n"
+        f"🌙 **التاريخ الهجري:** `{h_date_str}`\n\n"
+        f"▫️ **الفجر:** `{times_dict.get('Fajr')}`\n"
+        f"▫️ **الشروق:** `{times_dict.get('Sunrise')}`\n"
+        f"▫️ **الظهر:** `{times_dict.get('Dhuhr')}`\n"
+        f"▫️ **العصر:** `{times_dict.get('Asr')}`\n"
+        f"▫️ **المغرب:** `{times_dict.get('Maghrib')}`\n"
+        f"▫️ **العشاء:** `{times_dict.get('Isha')}`\n"
+    )
+
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("✍️ تعديل يدوي للأوقات", callback_data="manual_edit_prayer_times"))
+    markup.row(InlineKeyboardButton("🔄 تغيير المحافظة والقضاء والمذهب", callback_data="set_province_menu"))
+    markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+
+    if is_callback:
+        edit_user_interface(message, report, markup)
+    else:
+        bot.send_message(message.chat.id, report, reply_markup=markup, parse_mode="Markdown")
+
+def process_manual_prayer_offset(message):
+    user_id = message.from_user.id
+    str_user_id = str(user_id)
+    text = message.text.strip()
+    
+    db = load_db()
+    if "manual_offsets" not in db: db["manual_offsets"] = {}
+    db["manual_offsets"][str_user_id] = text
+    save_db(db)
+    
+    bot.reply_to(message, f"✅ تم حفظ التعديل اليدوي لمواقيت الصلاة بنجاح:\n`{text}`", parse_mode="Markdown")
+
+def process_game_account_name_with_province(message):
+    user_id = message.from_user.id
+    str_user_id = str(user_id)
+    name = message.text.strip()
+    
+    if not name or name.startswith('/'):
+        msg = bot.reply_to(message, "⚠️ الاسم غير صالح. يرجى إدخال اسمك الثلاثي أو الثنائي بشكل صحيح:")
+        bot.register_next_step_handler(msg, process_game_account_name_with_province)
+        return
+
+    db = load_db()
+    if "game_accounts" not in db: db["game_accounts"] = {}
+    
+    province = db.get("pending_game_provinces", {}).get(str_user_id, "كركوك")
+    
+    db["game_accounts"][str_user_id] = {
+        "name": name,
+        "province": province
+    }
+    if "game_points" not in db: db["game_points"] = {}
+    if str_user_id not in db["game_points"]:
+        db["game_points"][str_user_id] = 0
+        
+    if "pending_game_provinces" in db and str_user_id in db["pending_game_provinces"]:
+        del db["pending_game_provinces"][str_user_id]
+        
+    save_db(db)
+    
+    bot.reply_to(message, f"✅ تم إنشاء حساب الألعاب بنجاح باسم: **{name}** في محافظة **{province}** 🎉", parse_mode="Markdown")
+    
+    acc_info = db["game_accounts"][str_user_id]
+    pts = db.get("game_points", {}).get(str_user_id, 0)
+    text = (
+        f"👤 **واجهة الحساب الشخصية**\n\n"
+        f"▪️ **اسم الحساب:** {acc_info.get('name')}\n"
+        f"▪️ **اسم المحافظة:** {acc_info.get('province')}\n"
+        f"▪️ **آيدي الحساب (ID):** `{user_id}`\n"
+        f"▪️ **عدد النقاط:** `{pts}` 🏆\n"
+    )
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("التصنيف العام", callback_data="user_global_ranking"))
+    markup.row(InlineKeyboardButton("🗑 حذف الحساب", callback_data="user_confirm_delete_account"))
+    markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
+
+def process_user_support_message(message, today):
+    user_id = message.from_user.id
+    str_user_id = str(user_id)
+    text = message.text.strip()
+    
+    db = load_db()
+    if "support_logs" not in db: db["support_logs"] = {}
+    db["support_logs"][str_user_id] = today
+    save_db(db)
+    
+    name = message.from_user.first_name if message.from_user.first_name else "مستخدم"
+    username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد"
+    
+    admin_msg = (
+        f"🛠 **رسالة دعم جديدة من مستخدم:**\n\n"
+        f"👤 الاسم: {name}\n"
+        f"🔗 اليوزر: {username}\n"
+        f"🆔 الأيدي: `{user_id}`\n\n"
+        f"✉️ **النص:**\n{text}"
+    )
+    try:
+        bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+        bot.reply_to(message, "✅ تم إرسال رسالتك إلى المطور بنجاح. شكراً لتواصلك معنا!")
+    except Exception as e:
+        logger.error(f"Error sending support message to admin: {e}")
+        bot.reply_to(message, "⚠️ حدث خطأ أثناء إرسال الرسالة للمطور. حاول مرة أخرى لاحقاً.")
+
+@bot.message_handler(commands=['kut'])
+@bot.message_handler(func=lambda m: m.text and m.text.strip().lower() in ["كت", "سؤال كت", "السؤال كت"])
+def handle_kut_command(message):
+    db = load_db()
+    user_id = message.from_user.id
+    if str(user_id) in db.get("banned_users", []): return
+    
+    if not check_game_account_registered(user_id):
+        bot.reply_to(message, "⚠️ عذراً، يجب عليك تسجيل حساب الألعاب أولاً من قسم (الحساب 🏆) قبل اللعب!")
+        return
+
+    if not KUT_SUPPORT:
+        bot.reply_to(message, "⚠️ عذراً، ملف أسئلة الكت (kut_questions.py) غير متوفر حالياً على الخادم.")
+        return
+    
+    question_text = get_random_kut_question()
+    if not question_text:
+        question_text = "ما هو شعارك في الحياة؟"
+        
+    try:
+        add_game_points(user_id, 0.5)
+        bot.reply_to(message, f"🎯 {question_text}\n\n🎁 تم إضافة **0.5 نقطة** لحسابك!")
+    except Exception as e:
+        logger.error(f"Error in kut command: {e}")
+
+@bot.message_handler(commands=['ريدل', 'حزورة', 'حوازير', 'لغز'])
+@bot.message_handler(func=lambda m: m.text and m.text.strip().lower() in ["حزورة", "حوازير", "لغز", "ريدل", "العاب حوازير"])
+def handle_riddle_command(message):
+    db = load_db()
+    user_id = message.from_user.id
+    if str(user_id) in db.get("banned_users", []): return
+    
+    if not check_game_account_registered(user_id):
+        bot.reply_to(message, "⚠️ عذراً، يجب عليك تسجيل حساب الألعاب أولاً من قسم (الحساب 🏆) قبل اللعب!")
+        return
+
+    chat_id_str = str(message.chat.id)
+    riddle_item = random.choice(RIDDLES_LIST)
+    
+    if "active_riddles" not in db: db["active_riddles"] = {}
+    db["active_riddles"][chat_id_str] = {
+        "user_id": user_id,
+        "riddle": riddle_item["riddle"],
+        "answer": riddle_item["answer"].strip().lower(),
+        "attempts_left": 3
+    }
+    save_db(db)
+    
+    riddle_text = (
+        f"🧩 **لعبة الحوازير والألغاز الترفيهية**\n\n"
+        f"❓ **الحزورة:** {riddle_item['riddle']}\n\n"
+        f"⏳ لديك **3 محاولات** للإجابة الصحيحة! أرسل إجابتك الآن في رسالة."
+    )
+    bot.reply_to(message, riddle_text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text and not m.text.startswith('/'), content_types=['text'])
+def handle_user_messages(message):
+    db = load_db()
+    user_id = message.from_user.id
+    text = (message.text or "").strip().lower()
+    chat_id_str = str(message.chat.id)
+    
+    if str(user_id) in db.get("banned_users", []) or (message.from_user.username and message.from_user.username in db.get("banned_users", [])): return
+    if not db.get("bot_active", True) and str(user_id) != ADMIN_ID: return
+
+    if str(user_id) != ADMIN_ID and message.from_user.username != "TWEBii":
+        if not check_subscription(user_id):
+            bot.send_message(
+                message.chat.id,
+                "عذرا عزيزي عليك الإشتراك بقناة البوت الرسميه اتمكن من استخدامه",
+                reply_markup=sub_keyboard()
+            )
+            return
+
+    # --- التفاعل مع إجابات أسئلة الكت (سواء في الخاص أو المجموعات) عند الرد على رسالة البوت ---
+    my_bot_id = get_bot_id()
+    is_reply_to_bot = (message.reply_to_message and my_bot_id and message.reply_to_message.from_user.id == my_bot_id)
+    
+    if is_reply_to_bot and message.reply_to_message.text and message.reply_to_message.text.startswith("🎯"):
+        prompt_opinion = (
+            f"المستخدم رد على سؤال الكت الخاص بك ('{message.reply_to_message.text}') بإجابته التالية: ('{message.text}'). "
+            f"أعطِ رأيك المختصر واللطيف أو الساخِر قليلاً بإجابة المستخدم بعبارة قصيرة جداً باللغة العربية الفصحى."
+        )
+        bot.send_chat_action(message.chat.id, 'typing')
+        bot.reply_to(message, get_ai_reply(message, prompt_opinion))
+        return
+
+    active_riddles = db.get("active_riddles", {})
+    if chat_id_str in active_riddles:
+        current_riddle = active_riddles[chat_id_str]
+        correct_ans = current_riddle["answer"]
+        
+        if correct_ans in text or text in correct_ans:
+            u_id_game = current_riddle.get("user_id", user_id)
+            if not check_game_account_registered(u_id_game):
+                bot.reply_to(message, "⚠️ إجابتك صحيحة، ولكن لم يتم تسجيل حساب ألعاب لك لتلقي النقاط!")
+                del db["active_riddles"][chat_id_str]
+                save_db(db)
+                return
+
+            add_game_points(u_id_game, 5)
+            
+            user_key = str(u_id_game)
+            if "riddle_scores" not in db: db["riddle_scores"] = {}
+            if user_key not in db["riddle_scores"]:
+                db["riddle_scores"][user_key] = {"name": message.from_user.first_name, "score": 0}
+            
+            db["riddle_scores"][user_key]["score"] += 1
+            del db["active_riddles"][chat_id_str]
+            save_db(db)
+            
+            name = message.from_user.first_name
+            bot.reply_to(message, f"🎉 كفو يا بطل **{name}**! إجابتك صحيحة وتمت إضافة **5 نقاط** لرصيدك في الحوازير وحساب الألعاب 🏆.")
+            return
+        else:
+            current_riddle["attempts_left"] -= 1
+            remaining = current_riddle["attempts_left"]
+            
+            if remaining <= 0:
+                ans_reveal = current_riddle["answer"]
+                del db["active_riddles"][chat_id_str]
+                save_db(db)
+                bot.reply_to(message, f"❌ انتهت محاولاتكم الثلاثة للأسف!\n💡 الجواب الصحيح كان: `{ans_reveal}`", parse_mode="Markdown")
+                return
+            else:
+                save_db(db)
+                bot.reply_to(message, f"❌ إجابة خاطئة! متبقي لديك `{remaining}` محاولات فقط لهذه الحزورة.")
+                return
+
+    if message.chat.type in ['group', 'supergroup']:
+        if not (any(name in text for name in ["تويب", "Tweb", "TWEB", "أحمد", "احمد"]) or is_reply_to_bot):
+            return
+
+    user_key = str(user_id)
+    counters = db.get("msg_counters", {})
+    counters[user_key] = counters.get(user_key, 0) + 1
+    db["msg_counters"] = counters; save_db(db)
+
+    features_keywords = [
+        "ماذا تستطيع", "ماذا تفعل", "وش تسوي", "شنو تسوي", "وش تكدر تسوي",
+        "شنو تكدر تسوي", "مميزاتك", "خدماتك", "مهامك", "وش هي مهامك",
+        "شنو هي مهامك", "طريقة استخدامك", "أشياء تفعلها", "اشياء تفعلها"
+    ]
+    if any(keyword in text for keyword in features_keywords):
+        help_text = (
+            "🤖 **أهلاً بك! أنا مساعدك الذكي TWEB، وإليك خدماتي:**\n\n"
+            "📥 **1. التحميل من السوشيال ميديا:** أرسل الرابط مباشرة للتحميل كفيديو أو صوت.\n"
+            "🎬 **2. بث ومشاهدة المحاضرات:** أرسل أي فيديو أو محاضرة للحصول على روابط مشاهدة.\n"
+            "📄 **3. ترجمة وتعديل الملفات:** أرسل ملف PDF أو صورة لعرض خيارات الترجمة وتعديل وإرسال الملف كـ PDF.\n"
+            "🌙 **4. الأذكار والتنبيهات الدينية تلقائياً:** أذكار الصباح والنوم، ومناسبات التقويم الهجري.\n"
+            "🕌 **5. مواقيت الصلاة:** عرض أوقات الصلاة الدقيقة حسب الوقف السني ومحافظتك والقضائك والمذهب في العراق مع إمكانية التعديل اليدوي.\n"
+            "🎮 **6. الألعاب والحوازير:** العب XO (10 نقاط), حجرة ورقة مقص (10 نقاط), أسئلة الكت (0.5 نقطة), والحوازير (5 نقاط) مع لوحة نقاط تفاعلية.\n"
+            "🧠 **7. الإجابة الذكية:** أجب عن كافة استفساراتك العامة بالفصحى.\n"
+            "🛠 **8. التخصيص والدعم:** حدد شروط التعامل المفضلة للبوت معك من القائمة."
+        )
+        bot.send_chat_action(message.chat.id, 'typing')
+        bot.reply_to(message, help_text, parse_mode="Markdown")
+        if counters[user_key] % 5 == 0: send_random_sticker(message.chat.id)
+        return
+
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.reply_to(message, get_ai_reply(message, text))
+    if counters[user_key] % 5 == 0: send_random_sticker(message.chat.id)
+
+@bot.message_handler(func=lambda m: m.text and m.text.strip().lower() in ["أيدي", "ايدي", "/id", "/ID"])
+def handle_user_id_card(message):
+    db = load_db()
+    user_id = message.from_user.id
+    if str(user_id) in db.get("banned_users", []):
+        return
+
+    target_user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+    target_id = target_user.id
+
+    name = target_user.first_name
+    if target_user.last_name:
+        name += f" {target_user.last_name}"
+    
+    username = f"@{target_user.username}" if target_user.username else "لا يوجد"
+
+    status_text = "عضو"
+    try:
+        if message.chat.type in ['group', 'supergroup']:
+            member = bot.get_chat_member(message.chat.id, target_id)
+            if member.status == 'creator':
+                status_text = "منشئ المجموعة"
+            elif member.status == 'administrator':
+                status_text = "مشرف"
+            elif member.status == 'member':
+                status_text = "عضو"
+            elif member.status == 'restricted':
+                status_text = "مقيد"
+    except Exception:
+        pass
+
+    bio = ""
+    try:
+        chat_info = bot.get_chat(target_id)
+        if hasattr(chat_info, 'bio') and chat_info.bio:
+            bio = chat_info.bio
+    except Exception:
+        pass
+
+    cr_text = "2022/08"
+
+    caption = (
+        f"𖡋 𝐍𝐀𝐌 ⌯  {name}\n"
+        f"𖡋 𝐔𝐒𝐄 ⌯  {username}\n"
+        f"𖡋 𝐒𝐓𝐀 ⌯  {status_text}\n"
+        f"𖡋 𝐈𝐃 ⌯  {target_id}\n"
+        f"𖡋 𝐂𝐑  ⌯  {cr_text}\n"
+        f"{bio}"
+    )
+
+    try:
+        photos = bot.get_user_profile_photos(target_id, limit=1)
+        if photos.total_count > 0:
+            file_id = photos.photos[0][-1].file_id
+            bot.send_photo(message.chat.id, file_id, caption=caption, reply_to_message_id=message.message_id)
+        else:
+            bot.send_message(message.chat.id, caption, reply_to_message_id=message.message_id)
+    except Exception as e:
+        logger.error(f"Error sending ID card photo: {e}")
+        bot.send_message(message.chat.id, caption, reply_to_message_id=message.message_id)
+
+@bot.message_handler(commands=['ping'])
+def ping_command(message):
+    if str(message.from_user.id) == ADMIN_ID or message.from_user.username == "TWEBii":
+        start_time = time.time()
+        msg = bot.reply_to(message, "🏓 جاري الفحص...")
+        end_time = time.time()
+        ping_time = round((end_time - start_time) * 1000)
+        bot.edit_message_text(f"🏓 **Pong!**\n⚡️ زمن الاستجابة: `{ping_time}ms`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    db = load_db()
+    user_id = message.from_user.id
+    str_user_id = str(user_id)
+
+    if str_user_id in db.get("banned_users", []): return
+    if not db.get("bot_active", True) and str_user_id != ADMIN_ID:
+        bot.send_message(message.chat.id, "⚠️ عذراً، البوت متوقف حالياً من قبل المطور لأعمال الصيانة.")
+        return
+
+    if str_user_id != ADMIN_ID and message.from_user.username != "TWEBii":
+        if not check_subscription(user_id):
+            bot.send_message(
+                message.chat.id,
+                "عذرا عزيزي عليك الإشتراك بقناة البوت الرسميه اتمكن من استخدامه",
+                reply_markup=sub_keyboard()
+            )
+            return
+
+    send_random_sticker(message.chat.id)
+
+    if user_id not in db["users"] and str_user_id != ADMIN_ID:
+        db["users"].append(user_id)
+        save_db(db)
+
+    if "notified_users" not in db: db["notified_users"] = []
+
+    if str_user_id not in db["notified_users"] and str_user_id != ADMIN_ID:
+        db["notified_users"].append(str_user_id)
+        save_db(db)
+        if db.get("login_notice", True):
+            try:
+                name = message.from_user.first_name if message.from_user.first_name else "بدون اسم"
+                user_link = f"[{name}](tg://user?id={user_id})"
+                username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
+                notice_msg = f"🔔 دخل شخص جديد للبوت!\n👤 الحساب: {user_link}\n🔗 اليوزر: {username}\n🆔 الأيدي: `{user_id}`"
+                bot.send_message(ADMIN_ID, notice_msg, parse_mode="Markdown")
+            except Exception as e: logger.error(f"Failed to send login notice: {e}")
+
+    if str_user_id == ADMIN_ID or message.from_user.username == "TWEBii":
+        stats_text = f"• لوحة التحكم 🤖\n\n—— إحصائيات اليوم ——\n👥 الإجمالي: {len(db['users'])}\n📈 الرسائل: نشط\n⚡️ متوسط الاستجابة: سريع\n"
+        bot.send_message(message.chat.id, stats_text, reply_markup=get_admin_keyboard())
+    else:
+        if os.path.exists(VIDEO_PATH):
+            with open(VIDEO_PATH, 'rb') as video:
+                bot.send_video(message.chat.id, video, caption=db.get("start_text"), reply_markup=build_user_keyboard())
+        else:
+            bot.send_message(message.chat.id, db.get("start_text"), reply_markup=build_user_keyboard())
+
+@bot.message_handler(content_types=['video'])
+def handle_incoming_video(message):
+    db = load_db()
+    user_id = message.from_user.id
+    if str(user_id) in db.get("banned_users", []) or (not db.get("bot_active", True) and str(user_id) != ADMIN_ID): return
+
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("TWEB", url="https://t.me/lTelegramWeb"))
+    text = "**تابع القناة الرسمية للبوت التي يتم فيها تنزيل بوت مشاهدة فيديو تليجرام بدون تحميله من حين إلئ اخر**"
+    bot.reply_to(message, text, reply_markup=markup, parse_mode="Markdown")
+
+@bot.message_handler(content_types=['document', 'photo'])
+def handle_files_and_photos(message):
+    db = load_db()
+    if str(message.from_user.id) in db.get("banned_users", []) or (not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID): return
+
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("الترجمه", callback_data="file_translate"),
+        InlineKeyboardButton("تعديل", callback_data="file_edit")
+    )
+    bot.reply_to(message, "**الرجاء اختيار الإجراء المناسب للملف أو الصورة:**", reply_markup=markup, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text and any(word in m.text for word in ["ملصق", "ملصقات", "ستيكر", "ستيكرات"]))
+def handle_sticker_request(message):
+    db = load_db()
+    if str(message.from_user.id) in db.get("banned_users", []) or (not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID): return
+    if any(w in message.text for w in ["رابط", "روابط"]):
+        set_name = random.choice(STICKER_SETS)
+        bot.reply_to(message, f"🔗 تفضل رابط حزمة الملصقات العشوائية:\nhttps://t.me/addstickers/{set_name}")
+    else: send_random_sticker(message.chat.id)
+
+@bot.message_handler(func=lambda m: m.text and ("http://" in m.text or "https://" in m.text))
+def handle_social_links(message):
+    db = load_db()
+    if str(message.from_user.id) in db.get("banned_users", []) or (not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID): return
+
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("البوت", url="https://t.me/allsaverbot"),
+        InlineKeyboardButton("التطبيق", url="https://www.snaptube.com/ar/")
+    )
+    text = "**الرجاء اختيار طريقة التحميل المناسبة من الأزرار بالأسفل:**"
+    bot.reply_to(message, text, reply_markup=markup, parse_mode="Markdown", disable_web_page_preview=True)
+
+@bot.message_handler(func=lambda m: True, content_types=['sticker'])
+def handle_sticker(message):
+    db = load_db()
+    if str(message.from_user.id) in db.get("banned_users", []) or (not db.get("bot_active", True) and str(message.from_user.id) != ADMIN_ID): return
+    emoji = message.sticker.emoji if message.sticker.emoji else "غير معروف"
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.reply_to(message, get_ai_reply(message, f"المستخدم أرسل ملصق يعبر عن هذا الإيموجي: {emoji}. تفاعل معه بعبارة عربية قصيرة ولطيفة."))
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    user_id = call.from_user.id
+    str_user_id = str(user_id)
+    db = load_db()
+
+    if call.data == "user_menu_account":
+        bot.answer_callback_query(call.id)
+        accounts = db.get("game_accounts", {})
+        if str_user_id in accounts:
+            acc_info = accounts[str_user_id]
+            pts = db.get("game_points", {}).get(str_user_id, 0)
+            text = (
+                f"👤 **واجهة الحساب الشخصية**\n\n"
+                f"▪️ **اسم الحساب:** {acc_info.get('name')}\n"
+                f"▪️ **اسم المحافظة:** {acc_info.get('province')}\n"
+                f"▪️ **آيدي الحساب (ID):** `{user_id}`\n"
+                f"▪️ **عدد النقاط:** `{pts}` 🏆\n"
+            )
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("التصنيف العام", callback_data="user_global_ranking"))
+            markup.row(InlineKeyboardButton("🗑 حذف الحساب", callback_data="user_confirm_delete_account"))
+            markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+            edit_user_interface(call, text, markup)
+        else:
+            markup = InlineKeyboardMarkup()
+            provinces_list = list(IRAQ_DISTRICTS_PRAYER_TIMES.keys())
+            for i in range(0, len(provinces_list), 2):
+                row = [InlineKeyboardButton(provinces_list[i], callback_data=f"game_prov_{provinces_list[i]}")]
+                if i + 1 < len(provinces_list):
+                    row.append(InlineKeyboardButton(provinces_list[i+1], callback_data=f"game_prov_{provinces_list[i+1]}"))
+                markup.row(*row)
+            markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+            text = "🎮 **تسجيل حساب ألعاب جديد**\n\n📍 أولاً، اختر محافظتك من القائمة أدناه:"
+            edit_user_interface(call, text, markup)
+        return
+
+    elif call.data.startswith("game_prov_"):
+        province_name = call.data.replace("game_prov_", "")
+        if province_name in IRAQ_DISTRICTS_PRAYER_TIMES:
+            bot.answer_callback_query(call.id)
+            if "pending_game_provinces" not in db: db["pending_game_provinces"] = {}
+            db["pending_game_provinces"][str_user_id] = province_name
+            save_db(db)
+            
+            msg = bot.send_message(call.message.chat.id, f"📍 تم اختيار محافظة **{province_name}**.\n\n📝 الآن يرجى إدخال **اسمك** الثلاثي أو الثنائي لألعاب البوت:")
+            bot.register_next_step_handler(msg, process_game_account_name_with_province)
+        return
+
+    elif call.data == "user_confirm_delete_account":
+        bot.answer_callback_query(call.id)
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ تأكيد الحذف", callback_data="user_execute_delete_account"),
+            InlineKeyboardButton("❌ إلغاء", callback_data="user_menu_account")
+        )
+        text = "⚠️ **هل أنت متأكد من حذف حساب الألعاب الخاص بك؟**\n\nسيتم حذف كافة بياناتك ونقاطك المسجلة، وستتمكن من إنشاء حساب جديد بعدها."
+        edit_user_interface(call, text, markup)
+        return
+
+    elif call.data == "user_execute_delete_account":
+        bot.answer_callback_query(call.id, "✅ تم حذف حساب الألعاب بنجاح.", show_alert=True)
+        if "game_accounts" in db and str_user_id in db["game_accounts"]:
+            del db["game_accounts"][str_user_id]
+        if "game_points" in db and str_user_id in db["game_points"]:
+            del db["game_points"][str_user_id]
+        save_db(db)
+        
+        text = "🗑 **تم حذف حسابك بنجاح.**\n\nاضغط على (الحساب 🏆) مرة أخرى لإنشاء حساب جديد."
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+        edit_user_interface(call, text, markup)
+        return
+
+    elif call.data == "user_global_ranking":
+        bot.answer_callback_query(call.id)
+        points_dict = db.get("game_points", {})
+        accounts = db.get("game_accounts", {})
+        
+        sorted_ranking = sorted(points_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        rank_text = "🏆 **قائمة التصنيف العام لأكثر 10 أشخاص محصلين نقاط:**\n\n"
+        for idx, (uid, pts) in enumerate(sorted_ranking, 1):
+            acc = accounts.get(uid, {"name": "مستخدم", "province": "غير محدد"})
+            name = acc.get("name")
+            prov = acc.get("province")
+            
+            if idx == 1:
+                rank_text += f"👑 **المركز الأول 🥇:** {name} ({prov}) ⟵ **{pts} نقطة**\n"
+            elif idx == 2:
+                rank_text += f"🥈 **المركز الثاني 🥈:** {name} ({prov}) ⟵ **{pts} نقطة**\n"
+            elif idx == 3:
+                rank_text += f"🥉 **المركز الثالث 🥉:** {name} ({prov}) ⟵ **{pts} نقطة**\n"
+            else:
+                rank_text += f"✨ {idx}. {name} ({prov}) ⟵ `{pts}` نقطة\n"
+        
+        if not sorted_ranking:
+            rank_text += "لا توجد نقاط مسجلة حتى الآن!"
+            
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_menu_account"))
+        edit_user_interface(call, rank_text, markup)
+        return
+
+    elif call.data == "user_menu_games":
+        bot.answer_callback_query(call.id)
+        edit_user_interface(call, "🎮 **قائمة الألعاب والترفيه:**\n\nاختر اللعبة التي تود خوضها وجمع النقاط من خلالها:", get_games_menu_keyboard())
+        return
+
+    elif call.data == "user_menu_kut":
+        bot.answer_callback_query(call.id)
+        if not check_game_account_registered(user_id):
+            bot.answer_callback_query(call.id, "⚠️ يجب تسجيل حساب الألعاب أولاً من قسم (الحساب)!", show_alert=True)
+            return
+
+        if not KUT_SUPPORT:
+            bot.answer_callback_query(call.id, "⚠️ ملف أسئلة الكت غير متوفر.", show_alert=True)
+            return
+        
+        question_text = get_random_kut_question()
+        if not question_text:
+            question_text = "ما هو شعارك في الحياة؟"
+
+        try:
+            add_game_points(user_id, 0.5)
+            bot.send_message(call.message.chat.id, f"🎯 {question_text}\n\n🎁 تم إضافة **0.5 نقطة** لحسابك!")
+        except Exception as e:
+            logger.error(f"Error in kut callback: {e}")
+        return
+
+    elif call.data == "user_menu_riddles":
+        bot.answer_callback_query(call.id)
+        if not check_game_account_registered(user_id):
+            bot.answer_callback_query(call.id, "⚠️ يجب تسجيل حساب الألعاب أولاً من قسم (الحساب)!", show_alert=True)
+            return
+
+        chat_id_str = str(call.message.chat.id)
+        riddle_item = random.choice(RIDDLES_LIST)
+        
+        if "active_riddles" not in db: db["active_riddles"] = {}
+        db["active_riddles"][chat_id_str] = {
+            "user_id": user_id,
+            "riddle": riddle_item["riddle"],
+            "answer": riddle_item["answer"].strip().lower(),
+            "attempts_left": 3
+        }
+        save_db(db)
+        
+        riddle_text = (
+            f"🧩 **لعبة الحوازير والألغاز الترفيهية**\n\n"
+            f"❓ **الحزورة:** {riddle_item['riddle']}\n\n"
+            f"⏳ لديك **3 محاولات** للإجابة الصحيحة! أرسل إجابتك الآن في رسالة."
+        )
+        bot.send_message(call.message.chat.id, riddle_text, parse_mode="Markdown")
+        return
+
+    elif call.data == "user_menu_riddle_scores":
+        bot.answer_callback_query(call.id)
+        scores = db.get("riddle_scores", {})
+        if not scores:
+            bot.answer_callback_query(call.id, "⚠️ لا توجد نقاط مسجلة حتى الآن في لعبة الحوازير.", show_alert=True)
+            return
+        
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1].get("score", 0), reverse=True)
+        scores_text = "🏆 **لوحة صدارة نقاط الحوازير والألغاز:**\n\n"
+        for idx, (uid, data) in enumerate(sorted_scores[:10], 1):
+            scores_text += f"{idx}. **{data.get('name', 'مستخدم')}** ⟵ `{data.get('score', 0)}` نقطة\n"
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_menu_games"))
+        edit_user_interface(call, scores_text, markup)
+        return
+
+    elif call.data == "user_menu_prayer_times":
+        bot.answer_callback_query(call.id)
+        saved_province = db.get("user_provinces", {}).get(str_user_id)
+        saved_district = db.get("user_districts", {}).get(str_user_id)
+        saved_madhab = db.get("user_madhabs", {}).get(str_user_id)
+        
+        if saved_province and saved_district and saved_madhab:
+            send_prayer_times_report(call.message, saved_province, saved_district, saved_madhab, is_callback=True)
+        else:
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("📍 تعيين المحافظة والقضاء", callback_data="set_province_menu"))
+            markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+            text = "🕌 **قائمة مواقيت الصلاة في العراق (حسب الوقف السني)**\n\nقم بتحديد محافظتك ثم القضاء والمذهب الفقهي لعرض مواقيت الصلاة وتاريخ اليوم بدقة."
+            edit_user_interface(call, text, markup)
+        return
+
+    elif call.data == "set_province_menu":
+        bot.answer_callback_query(call.id)
+        markup = InlineKeyboardMarkup()
+        provinces_list = list(IRAQ_DISTRICTS_PRAYER_TIMES.keys())
+        for i in range(0, len(provinces_list), 2):
+            row = [InlineKeyboardButton(provinces_list[i], callback_data=f"prov_{provinces_list[i]}")]
+            if i + 1 < len(provinces_list):
+                row.append(InlineKeyboardButton(provinces_list[i+1], callback_data=f"prov_{provinces_list[i+1]}"))
+            markup.row(*row)
+        markup.add(InlineKeyboardButton("« رجوع", callback_data="user_menu_prayer_times"))
+        edit_user_interface(call, "📍 **اختر محافظتك من القائمة أدناه:**", markup)
+        return
+
+    elif call.data.startswith("prov_"):
+        province_name = call.data.replace("prov_", "")
+        if province_name in IRAQ_DISTRICTS_PRAYER_TIMES:
+            bot.answer_callback_query(call.id)
+            markup = InlineKeyboardMarkup()
+            districts = list(IRAQ_DISTRICTS_PRAYER_TIMES[province_name].keys())
+            for i in range(0, len(districts), 2):
+                row = [InlineKeyboardButton(districts[i], callback_data=f"dist_{province_name}_{districts[i]}")]
+                if i + 1 < len(districts):
+                    row.append(InlineKeyboardButton(districts[i+1], callback_data=f"dist_{province_name}_{districts[i+1]}"))
+                markup.row(*row)
+            markup.add(InlineKeyboardButton("« رجوع للمحافظات", callback_data="set_province_menu"))
+            edit_user_interface(call, f"📍 اختر القضاء أو الناحية التابعة لمحافظة **{province_name}**:", markup)
+        return
+
+    elif call.data.startswith("dist_"):
+        parts = call.data.replace("dist_", "").split("_", 1)
+        province_name = parts[0]
+        district_name = parts[1]
+        
+        if province_name in IRAQ_DISTRICTS_PRAYER_TIMES and district_name in IRAQ_DISTRICTS_PRAYER_TIMES[province_name]:
+            if "user_provinces" not in db: db["user_provinces"] = {}
+            if "user_districts" not in db: db["user_districts"] = {}
+            db["user_provinces"][str_user_id] = province_name
+            db["user_districts"][str_user_id] = district_name
+            save_db(db)
+            
+            bot.answer_callback_query(call.id)
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("⚖️ الجمهور (شافعي، مالكي، حنبلي)", callback_data=f"madhab_{province_name}_{district_name}_shafii"))
+            markup.row(InlineKeyboardButton("⚖️ المذهب الحنفي", callback_data=f"madhab_{province_name}_{district_name}_hanafi"))
+            markup.add(InlineKeyboardButton("« رجوع للأقضية", callback_data=f"prov_{province_name}"))
+            edit_user_interface(call, f"⚖️ **اختر المذهب الفقهي لحساب وقت صلاة العصر في ({district_name} - {province_name}):**", markup)
+        return
+
+    elif call.data.startswith("madhab_"):
+        parts = call.data.replace("madhab_", "").split("_")
+        province_name = parts[0]
+        district_name = parts[1]
+        madhab_type = parts[2]
+        
+        if "user_madhabs" not in db: db["user_madhabs"] = {}
+        db["user_madhabs"][str_user_id] = madhab_type
+        save_db(db)
+        
+        bot.answer_callback_query(call.id, "✅ تم حفظ إعدادات منطقتك ومذهبك بنجاح نهائياً!", show_alert=True)
+        send_prayer_times_report(call.message, province_name, district_name, madhab_type, is_callback=True)
+        return
+
+    elif call.data == "manual_edit_prayer_times":
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(user_id, "✍️ أرسل اسم الصلاة مع عدد الدقائق بالنقص أو الزيادة (مثال:\n`صلاة العصر - 30`\nأو\n`صلاة الفجر + 10`)", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, process_manual_prayer_offset)
+        return
+
+    elif call.data == "check_sub":
+        if check_subscription(user_id):
+            bot.answer_callback_query(call.id, "✅ شكراً لاشتراكك، تم تفعيل البوت بنجاح!", show_alert=True)
+            try: bot.delete_message(call.message.chat.id, call.message.message_id)
+            except Exception: pass
+            start_command(call.message)
+        else:
+            bot.answer_callback_query(call.id, "❌ عذراً، لم تقم بالاشتراك في القناة بعد!", show_alert=True)
+        return
+
+    elif call.data == "user_back_home":
+        bot.answer_callback_query(call.id)
+        edit_user_interface(call, db.get("start_text"), build_user_keyboard())
+        return
+
+    elif call.data == "file_translate":
+        bot.answer_callback_query(call.id)
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("ترجمة عبر البوت مباشرة", callback_data="do_file_translate_bot"),
+            InlineKeyboardButton("البوت الخارجي", url="https://t.me/XFXBOT")
+        )
+        markup.row(InlineKeyboardButton("الموقع", url="https://translate.google.com.sa/?sl=auto&tl=ar&op=docs"))
+        markup.row(InlineKeyboardButton("« رجوع", callback_data="back_to_file_options"))
+        text = "**الرجاء اختيار طريقة الترجمة المناسبة من الأزرار بالأسفل:**"
+        bot.edit_message_text(text, chat_id=user_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown", disable_web_page_preview=True)
+        return
+
+    elif call.data == "do_file_translate_bot":
+        bot.answer_callback_query(call.id, "📥 بدأت معالجة ملفك الآن...", show_alert=False)
+        status_msg = bot.send_message(user_id, "⏳ جاري بدء معالجة وترجمة الملف... 0%")
+        translated_pdf_path = None
+        try:
+            repl_msg = call.message.reply_to_message
+            if not repl_msg:
+                bot.edit_message_text("⚠️ الرجاء إجراء الطلب بالرد مباشرة على الملف أو الصورة الأصلية.", chat_id=user_id, message_id=status_msg.message_id)
+                return
+
+            pages_images = []
+
+            def draw_perfect_arabic_text(draw, text_string, width, height, font):
+                paragraphs = text_string.split('\n')
+                lines = []
+                max_allowed_width = width - int(width * 0.1)
+                
+                for p in paragraphs:
+                    if not p.strip():
+                        lines.append("")
+                        continue
+                    words = p.split(' ')
+                    current_line = ""
+                    for word in words:
+                        test_line = f"{current_line} {word}".strip() if current_line else word
+                        try:
+                            if ARABIC_SUPPORT:
+                                reshaped_test = arabic_reshaper.reshape(test_line)
+                                bidi_test = get_display(reshaped_test)
+                            else:
+                                bidi_test = test_line
+                            try:
+                                bbox = draw.textbbox((0, 0), bidi_test, font=font)
+                                line_w = bbox[2] - bbox[0]
+                            except AttributeError:
+                                line_w, _ = draw.textsize(bidi_test, font=font)
+                        except Exception:
+                            line_w = len(test_line) * 10
+                            
+                        if line_w <= max_allowed_width:
+                            current_line = test_line
+                        else:
+                            if current_line:
+                                lines.append(current_line)
+                            current_line = word
+                    if current_line:
+                        lines.append(current_line)
+
+                y_offset = int(height * 0.05)
+                line_spacing = int((font.size if hasattr(font, 'size') else 16) * 1.6)
+
+                for line in lines:
+                    if not line.strip():
+                        y_offset += line_spacing
+                        continue
+                    if ARABIC_SUPPORT:
+                        try:
+                            reshaped_text = arabic_reshaper.reshape(line)
+                            bidi_text = get_display(reshaped_text)
+                        except Exception:
+                            bidi_text = line
+                    else:
+                        bidi_text = line
+
+                    try:
+                        bbox = draw.textbbox((0, 0), bidi_text, font=font)
+                        line_w = bbox[2] - bbox[0]
+                    except AttributeError:
+                        line_w, _ = draw.textsize(bidi_text, font=font)
+
+                    x_pos = width - line_w - int(width * 0.05)
+                    if x_pos < int(width * 0.05):
+                        x_pos = int(width * 0.05)
+
+                    draw.text((x_pos, y_offset), bidi_text, font=font, fill="black")
+                    y_offset += line_spacing
+
+            if repl_msg.photo:
+                bot.edit_message_text("⏳ جاري تحميل الصورة الأصلية... 20%", chat_id=user_id, message_id=status_msg.message_id)
+                file_info = bot.get_file(repl_msg.photo[-1].file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+                temp_img_path = f"orig_{user_id}_{uuid.uuid4().hex[:4]}.jpg"
+                with open(temp_img_path, 'wb') as f:
+                    f.write(downloaded_file)
+                
+                bot.edit_message_text("⏳ جاري قراءة واستخراج النصوص ذكياً... 50%", chat_id=user_id, message_id=status_msg.message_id)
+                orig_img = Image.open(temp_img_path)
+                w, h = orig_img.size
+                extracted_text = pytesseract.image_to_string(orig_img, lang='ara+eng')
+                
+                bot.edit_message_text("⏳ جاري ترجمة النصوص بدقة تامة للعربية الفصحى... 70%", chat_id=user_id, message_id=status_msg.message_id)
+                translated = translate_text(extracted_text, target_lang='ar') if extracted_text.strip() else "لم يتم العثور على نص داخل الصورة."
+                
+                bot.edit_message_text("⏳ جاري تنسيق وإعادة بناء صفحة الترجمة... 90%", chat_id=user_id, message_id=status_msg.message_id)
+                trans_img = Image.new("RGB", (w, h), "white")
+                draw = ImageDraw.Draw(trans_img)
+                font_size = int(h * 0.025) if int(h * 0.025) > 12 else 16
+                font = ImageFont.truetype(FONT_PATH, font_size) if os.path.exists(FONT_PATH) else ImageFont.load_default()
+                
+                draw_perfect_arabic_text(draw, translated, w, h, font)
+                
+                combined = Image.new("RGB", (w, h * 2))
+                combined.paste(orig_img, (0, 0))
+                combined.paste(trans_img, (0, h))
+                pages_images.append(combined)
+                safe_remove_file(temp_img_path)
+
+            elif repl_msg.document:
+                bot.edit_message_text("⏳ جاري تحميل مستند الـ PDF... 15%", chat_id=user_id, message_id=status_msg.message_id)
+                file_info = bot.get_file(repl_msg.document.file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+                
+                temp_doc_path = f"doc_{user_id}_{uuid.uuid4().hex[:6]}.pdf"
+                with open(temp_doc_path, 'wb') as f:
+                    f.write(downloaded_file)
+                
+                if PDF_SUPPORT:
+                    doc = fitz.open(temp_doc_path)
+                    total_pages = len(doc)
+                    for page_num in range(total_pages):
+                        progress = int(15 + (page_num / total_pages) * 65)
+                        bot.edit_message_text(f"⏳ جاري معالجة وترجمة الصفحة {page_num + 1} من {total_pages}... {progress}%", chat_id=user_id, message_id=status_msg.message_id)
+                        
+                        page = doc[page_num]
+                        pix = page.get_pixmap(dpi=150)
+                        img_data = pix.tobytes("png")
+                        temp_page_img_path = f"p_{page_num}_{user_id}.png"
+                        with open(temp_page_img_path, "wb") as pf:
+                            pf.write(img_data)
+                            
+                        orig_img = Image.open(temp_page_img_path)
+                        w, h = orig_img.size
+                        text_content = page.get_text()
+                        if not text_content.strip():
+                            text_content = pytesseract.image_to_string(orig_img, lang='ara+eng')
+                            
+                        translated = translate_text(text_content, target_lang='ar') if text_content.strip() else "لا يوجد نص في هذه الصفحة."
+                        
+                        trans_img = Image.new("RGB", (w, h), "white")
+                        draw = ImageDraw.Draw(trans_img)
+                        font_size = int(h * 0.025) if int(h * 0.025) > 12 else 16
+                        font = ImageFont.truetype(FONT_PATH, font_size) if os.path.exists(FONT_PATH) else ImageFont.load_default()
+                        
+                        draw_perfect_arabic_text(draw, translated, w, h, font)
+                            
+                        combined = Image.new("RGB", (w, h * 2))
+                        combined.paste(orig_img, (0, 0))
+                        combined.paste(trans_img, (0, h))
+                        pages_images.append(combined)
+                        safe_remove_file(temp_page_img_path)
+                    doc.close()
+                else:
+                    bot.edit_message_text("⚠️ مكتبة معالجة الـ PDF (fitz) غير متوفرة على الخادم.", chat_id=user_id, message_id=status_msg.message_id)
+                    safe_remove_file(temp_doc_path)
+                    return
+                safe_remove_file(temp_doc_path)
+
+            if pages_images:
+                bot.edit_message_text("⏳ جاري حفظ وتصدير الملف النهائي بصيغة PDF... 95%", chat_id=user_id, message_id=status_msg.message_id)
+                translated_pdf_path = f"final_translated_{user_id}_{uuid.uuid4().hex[:6]}.pdf"
+                pages_images[0].save(translated_pdf_path, save_all=True, append_images=pages_images[1:])
+                
+                bot.edit_message_text("🚀 اكتملت العملية بنجاح! جاري إرسال الملف...", chat_id=user_id, message_id=status_msg.message_id)
+                with open(translated_pdf_path, 'rb') as final_pdf:
+                    bot.send_document(
+                        user_id,
+                        final_pdf,
+                        caption="📄 **تم ترجمة الملف بنجاح بواسطة بوت TWEB** ✨",
+                        parse_mode="Markdown"
+                    )
+                safe_remove_file(translated_pdf_path)
+            else:
+                bot.edit_message_text("⚠️ لم يتم استخراج أي صفحات لترجمتها.", chat_id=user_id, message_id=status_msg.message_id)
+        except Exception as e:
+            logger.error(f"File Translation Error: {e}")
+            bot.edit_message_text(f"⚠️ حدث خطأ أثناء معالجة وترجمة الملف: {e}", chat_id=user_id, message_id=status_msg.message_id)
+            if translated_pdf_path:
+                safe_remove_file(translated_pdf_path)
+        return
+
+    elif call.data == "user_menu_support":
+        bot.answer_callback_query(call.id)
+        today = datetime.datetime.now(pytz.timezone('Asia/Baghdad')).strftime('%Y-%m-%d')
+        if db.get("support_logs", {}).get(str(user_id)) == today:
+            bot.send_message(user_id, "⚠️ يُسمح بإرسال رسالة دعم واحدة يومياً.")
+            return
+        msg = bot.send_message(user_id, "🛠 يرجى كتابة تفاصيل المشكلة في رسالة واحدة ليتم توجيهها للمطور:")
+        bot.register_next_step_handler(msg, process_user_support_message, today)
+        return
+
+    elif call.data == "user_menu_guide":
+        bot.answer_callback_query(call.id)
+        guide_text = (
+            "❓ **دليل استخدام بوت TWEB:**\n\n"
+            "• للتحميل من السوشيال ميديا: أرسل أي رابط فيديو أو منشور.\n"
+            "• لترجمة الملفات والصور: أرسل الملف أو الصورة ثم اختر (ترجمة).\n"
+            "• للألعاب والترفيه: استخدم قسم الألعاب لجمع النقاط والتسلية.\n"
+            "• لمواقيت الصلاة: اضغط على زر مواقيت الصلاة لتحديد محافظتك بدقة."
+        )
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("« رجوع للقائمة السابقة 🔙", callback_data="user_back_home"))
+        edit_user_interface(call, guide_text, markup)
+        return
+
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return '', 403
+
+@app.route('/')
+def index():
+    return "TWEB Bot is running successfully!", 200
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
